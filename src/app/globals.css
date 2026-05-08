@@ -1,0 +1,182 @@
+@import "tailwindcss";
+
+@theme {
+  --color-midnight-navy: #0f172a;
+  --color-slate-indigo: #334155;
+  --color-electric-violet: #7c3aed;
+  --color-soft-lavender: #c4b5fd;
+  --color-off-white: #f8fafc;
+
+  --color-background: #0f172a;
+  --color-foreground: #f8fafc;
+  --color-muted: #334155;
+  --color-muted-foreground: #c4b5fd;
+  --color-primary: #7c3aed;
+  --color-primary-foreground: #f8fafc;
+  --color-border: rgba(196, 181, 253, 0.15);
+  --color-ring: #7c3aed;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-space), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+
+  --animate-fade-up: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fadeIn 0.5s ease-out both;
+  --animate-shimmer: shimmer 8s linear infinite;
+  --animate-float: float 12s ease-in-out infinite;
+  --animate-pulse-soft: pulseSoft 4s ease-in-out infinite;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -24px, 0) scale(1.05);
+  }
+}
+
+@keyframes pulseSoft {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: rgba(124, 58, 237, 0.4);
+    color: var(--color-off-white);
+  }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 1000px transparent inset !important;
+    -webkit-text-fill-color: var(--color-off-white) !important;
+    transition: background-color 5000s ease-in-out 0s;
+    caret-color: var(--color-off-white);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .glass {
+    background: linear-gradient(
+      145deg,
+      rgba(248, 250, 252, 0.06) 0%,
+      rgba(248, 250, 252, 0.02) 100%
+    );
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+    border: 1px solid rgba(196, 181, 253, 0.12);
+  }
+
+  .glass-strong {
+    background: linear-gradient(
+      145deg,
+      rgba(248, 250, 252, 0.08) 0%,
+      rgba(124, 58, 237, 0.04) 100%
+    );
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: 1px solid rgba(196, 181, 253, 0.18);
+  }
+
+  .gradient-text {
+    background-image: linear-gradient(
+      120deg,
+      var(--color-off-white) 0%,
+      var(--color-soft-lavender) 50%,
+      var(--color-electric-violet) 100%
+    );
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    background-size: 200% 200%;
+    animation: shimmer 8s linear infinite;
+  }
+
+  .glow-violet {
+    box-shadow:
+      0 0 0 1px rgba(196, 181, 253, 0.18),
+      0 20px 60px -20px rgba(124, 58, 237, 0.55),
+      0 0 80px -10px rgba(124, 58, 237, 0.35);
+  }
+
+  .ambient-grid {
+    background-image:
+      linear-gradient(rgba(196, 181, 253, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(196, 181, 253, 0.05) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

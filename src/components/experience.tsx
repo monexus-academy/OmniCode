@@ -1,0 +1,92 @@
+"use client";
+
+import { useCallback, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Loader2 } from "lucide-react";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+
+import { AmbientBackground } from "@/components/ambient-background";
+import { Questionnaire } from "@/components/questionnaire";
+import { StartScreen } from "@/components/start-screen";
+import { WelcomeScreen } from "@/components/welcome-screen";
+import { useAuth } from "@/lib/auth-context";
+import { db } from "@/lib/firebase";
+
+type Stage = "start" | "questionnaire";
+
+export function Experience() {
+  const { user, loading } = useAuth();
+  const [stage, setStage] = useState<Stage>("start");
+
+  const handleStart = useCallback(() => setStage("questionnaire"), []);
+
+  const handleComplete = useCallback(
+    async (answers: Record<string, string>) => {
+      if (!user) return;
+      try {
+        await setDoc(
+          doc(db, "profiles", user.uid),
+          {
+            ...answers,
+            email: user.email,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      } catch (err) {
+        console.error("Failed to persist profile", err);
+      }
+    },
+    [user],
+  );
+
+  return (
+    <div className="relative min-h-screen overflow-hidden">
+      <AmbientBackground />
+
+      <AnimatePresence mode="wait" initial={false}>
+        {loading ? (
+          <motion.div
+            key="loader"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex min-h-screen items-center justify-center"
+          >
+            <Loader2 className="h-8 w-8 animate-spin text-soft-lavender" />
+          </motion.div>
+        ) : !user ? (
+          <motion.div
+            key="welcome"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <WelcomeScreen />
+          </motion.div>
+        ) : stage === "start" ? (
+          <motion.div
+            key="start"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <StartScreen onStart={handleStart} />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="questionnaire"
+            initial={{ opacity: 0, scale: 0.985 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.985 }}
+            transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <Questionnaire onComplete={handleComplete} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
