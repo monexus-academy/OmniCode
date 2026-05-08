@@ -15,7 +15,8 @@ export type OnboardingFieldType =
   | "city"
   | "language-rows"
   | "profile-photo"
-  | "education-level";
+  | "education-level"
+  | "legal-last-names";
 
 export type OnboardingField = {
   key: string;
@@ -114,10 +115,12 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "legalLastName",
-    label: "Legal last name",
-    prompt: "What's your legal last name?",
-    placeholder: "e.g. Vasquez",
-    type: "text",
+    label: "Legal last name(s)",
+    prompt: "What are your legal last name(s)?",
+    helper:
+      "If you use more than one surname on documents (for example maternal plus paternal), add each one. Your first surname goes in the primary field.",
+    placeholder: "Primary legal last name",
+    type: "legal-last-names",
     required: true,
     autoComplete: "family-name",
   },

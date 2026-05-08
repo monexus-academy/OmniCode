@@ -300,11 +300,58 @@ function optionalUrlValid(raw: string): boolean {
   }
 }
 
+type LegalLastNamesPayload = { primary: string; additional: string[] };
+
+function parseLegalLastNamesObject(raw: string): LegalLastNamesPayload | null {
+  try {
+    const p = JSON.parse(raw || "{}") as unknown;
+    if (!p || typeof p !== "object") return null;
+    const o = p as Record<string, unknown>;
+    const primary = typeof o.primary === "string" ? o.primary : "";
+    const add = o.additional;
+    const additional = Array.isArray(add)
+      ? add.filter((x): x is string => typeof x === "string")
+      : [];
+    return { primary, additional };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLegalLastNames(raw: string): LegalLastNamesPayload {
+  const parsed = parseLegalLastNamesObject(raw);
+  if (parsed) {
+    return { primary: parsed.primary, additional: [...parsed.additional] };
+  }
+  return { primary: raw, additional: [] };
+}
+
+function serializeLegalLastNames(payload: LegalLastNamesPayload): string {
+  return JSON.stringify({
+    primary: payload.primary,
+    additional: payload.additional,
+  });
+}
+
+function legalLastNamesStepValid(raw: string, required: boolean): boolean {
+  const n = normalizeLegalLastNames(raw);
+  if (!required) return true;
+  return n.primary.trim().length > 0;
+}
+
+function legalLastNamesHasPartialProgress(raw: string): boolean {
+  const n = normalizeLegalLastNames(raw);
+  if (n.primary.trim().length > 0) return true;
+  return n.additional.some((s) => s.trim().length > 0);
+}
+
 function isStepValid(field: OnboardingField, value: string): boolean {
   if (!field.required && field.type !== "language-rows") {
     if (field.type === "url") return optionalUrlValid(value);
     if (
-      (field.type === "birth-date" || field.type === "education-level") &&
+      (field.type === "birth-date" ||
+        field.type === "education-level" ||
+        field.type === "legal-last-names") &&
       !value.trim()
     ) {
       return !field.required;
@@ -319,6 +366,8 @@ function isStepValid(field: OnboardingField, value: string): boolean {
       return isReasonableDateOfBirth(value);
     case "education-level":
       return educationStepValid(value, field.educationMode ?? "standard");
+    case "legal-last-names":
+      return legalLastNamesStepValid(value, !!field.required);
     case "url":
       if (!field.required) return optionalUrlValid(value);
       return optionalUrlValid(value) && value.trim().length > 0;
@@ -376,6 +425,9 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
       )
         ? 0.5
         : 0;
+    }
+    if (field.type === "legal-last-names") {
+      chunk = legalLastNamesHasPartialProgress(value) ? 0.5 : 0;
     }
     if (field.type === "birth-date" && isReasonableDateOfBirth(value)) {
       chunk = 0.5;
@@ -446,6 +498,7 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
         if (target?.closest("[data-language-rows]")) return;
         if (target?.closest("[data-birth-date]")) return;
         if (target?.closest("[data-education-level]")) return;
+        if (target?.closest("[data-legal-last-names]")) return;
         const inSelect = target?.tagName === "SELECT";
         if (inSelect && field?.type === "select") {
           e.preventDefault();
@@ -1034,6 +1087,109 @@ function EducationLevelEditor({
   );
 }
 
+function LegalLastNamesEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (json: string) => void;
+}) {
+  const { primary, additional } = useMemo(
+    () => normalizeLegalLastNames(value),
+    [value],
+  );
+
+  const persist = useCallback(
+    (next: LegalLastNamesPayload) => {
+      onChange(serializeLegalLastNames(next));
+    },
+    [onChange],
+  );
+
+  const setPrimary = useCallback(
+    (v: string) => {
+      persist({ primary: v, additional });
+    },
+    [additional, persist],
+  );
+
+  const setAdditional = useCallback(
+    (index: number, v: string) => {
+      persist({
+        primary,
+        additional: additional.map((s, i) => (i === index ? v : s)),
+      });
+    },
+    [additional, persist, primary],
+  );
+
+  const addAdditional = useCallback(() => {
+    persist({ primary, additional: [...additional, ""] });
+  }, [additional, persist, primary]);
+
+  const removeAdditional = useCallback(
+    (index: number) => {
+      persist({
+        primary,
+        additional: additional.filter((_, i) => i !== index),
+      });
+    },
+    [additional, persist, primary],
+  );
+
+  return (
+    <div className="space-y-6" data-legal-last-names="">
+      <div className="space-y-2">
+        <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+          Primary legal last name
+        </label>
+        <Input
+          value={primary}
+          onChange={(e) => setPrimary(e.target.value)}
+          placeholder="e.g. Vasquez"
+          autoComplete="family-name"
+          className="h-14 text-lg"
+        />
+      </div>
+
+      {additional.map((s, index) => (
+        <div
+          key={index}
+          className="flex flex-col gap-3 rounded-xl border border-soft-lavender/15 bg-off-white/[0.03] p-4 sm:flex-row sm:items-end"
+        >
+          <div className="min-w-0 flex-1 space-y-2">
+            <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+              Additional last name {index + 1}
+            </label>
+            <Input
+              value={s}
+              onChange={(e) => setAdditional(index, e.target.value)}
+              placeholder="e.g. López"
+              autoComplete="off"
+              className="h-14 text-lg"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="shrink-0 self-end text-soft-lavender hover:text-red-300 sm:self-auto"
+            onClick={() => removeAdditional(index)}
+            aria-label={`Remove additional last name ${index + 1}`}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+
+      <Button type="button" variant="outline" size="md" onClick={addAdditional}>
+        <Plus className="h-4 w-4" />
+        Add another last name
+      </Button>
+    </div>
+  );
+}
+
 function FieldRenderer({
   field,
   answers,
@@ -1055,7 +1211,8 @@ function FieldRenderer({
       field.type === "language-rows" ||
       field.type === "profile-photo" ||
       field.type === "birth-date" ||
-      field.type === "education-level"
+      field.type === "education-level" ||
+      field.type === "legal-last-names"
     ) {
       return;
     }
@@ -1098,6 +1255,10 @@ function FieldRenderer({
         mode={field.educationMode ?? "standard"}
       />
     );
+  }
+
+  if (field.type === "legal-last-names") {
+    return <LegalLastNamesEditor value={value} onChange={onChange} />;
   }
 
   if (field.type === "city" && cityMode) {

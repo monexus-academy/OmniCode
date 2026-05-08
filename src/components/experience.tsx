@@ -12,6 +12,34 @@ import { WelcomeScreen } from "@/components/welcome-screen";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 
+function splitLegalLastNamesForFirestore(raw: string): {
+  legalLastName: string;
+  additionalLegalLastNames: string[];
+} {
+  try {
+    const p = JSON.parse(raw ?? "{}") as unknown;
+    if (p && typeof p === "object") {
+      const o = p as Record<string, unknown>;
+      const primary =
+        typeof o.primary === "string" ? o.primary.trim() : "";
+      const add = o.additional;
+      const additional = Array.isArray(add)
+        ? add
+            .filter((x): x is string => typeof x === "string")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0)
+        : [];
+      return { legalLastName: primary, additionalLegalLastNames: additional };
+    }
+  } catch {
+    /* treat as legacy plain-text answer */
+  }
+  return {
+    legalLastName: (raw ?? "").trim(),
+    additionalLegalLastNames: [],
+  };
+}
+
 type Stage = "start" | "questionnaire";
 
 export function Experience() {
@@ -73,6 +101,12 @@ export function Experience() {
       for (const key of EDU_KEYS) {
         delete scalars[key];
       }
+
+      const lnSplit = splitLegalLastNamesForFirestore(
+        String(scalars.legalLastName ?? ""),
+      );
+      scalars.legalLastName = lnSplit.legalLastName;
+      scalars.additionalLegalLastNames = lnSplit.additionalLegalLastNames;
 
       const payload: Record<string, unknown> = {
         ...scalars,
