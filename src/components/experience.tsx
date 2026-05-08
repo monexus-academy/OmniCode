@@ -44,17 +44,52 @@ export function Experience() {
 
       const { additionalLanguages: _drop, ...rest } = answers;
 
+      const educationSnapshot: Record<string, unknown> = {};
+      const EDU_KEYS = [
+        "education_kindergarten",
+        "education_elementary",
+        "education_middleSchool",
+        "education_highSchool",
+        "education_college",
+      ] as const;
+      const eduFirestoreKey: Record<(typeof EDU_KEYS)[number], string> = {
+        education_kindergarten: "kindergarten",
+        education_elementary: "elementary",
+        education_middleSchool: "middleSchool",
+        education_highSchool: "highSchool",
+        education_college: "college",
+      };
+
+      for (const key of EDU_KEYS) {
+        const raw = answers[key];
+        try {
+          educationSnapshot[eduFirestoreKey[key]] = JSON.parse(raw ?? "{}");
+        } catch {
+          educationSnapshot[eduFirestoreKey[key]] = { skipped: true };
+        }
+      }
+
+      const scalars = { ...rest } as Record<string, unknown>;
+      for (const key of EDU_KEYS) {
+        delete scalars[key];
+      }
+
+      const payload: Record<string, unknown> = {
+        ...scalars,
+        additionalLanguages: additionalLanguagesParsed,
+        educationHistory: educationSnapshot,
+        email: user.email,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (scalars.countryOfResidence === "ca") {
+        delete payload.stateOfResidence;
+      }
+
       try {
-        await setDoc(
-          doc(db, "profiles", user.uid),
-          {
-            ...rest,
-            additionalLanguages: additionalLanguagesParsed,
-            email: user.email,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true },
-        );
+        await setDoc(doc(db, "OmniUsers", user.uid), payload, {
+          merge: true,
+        });
       } catch (err) {
         console.error("Failed to persist profile", err);
       }

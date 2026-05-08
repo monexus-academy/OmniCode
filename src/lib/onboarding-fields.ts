@@ -1,11 +1,20 @@
+import {
+  MEXICO_STATE_OPTIONS,
+  RESIDENCE_COUNTRY_OPTIONS,
+  US_STATE_OPTIONS,
+} from "@/lib/geo-regions";
+
+export type AnswersMap = Record<string, string>;
+
 export type OnboardingFieldType =
   | "text"
   | "tel"
   | "url"
-  | "date"
+  | "birth-date"
   | "select"
   | "language-rows"
-  | "profile-photo";
+  | "profile-photo"
+  | "education-level";
 
 export type OnboardingField = {
   key: string;
@@ -15,10 +24,14 @@ export type OnboardingField = {
   placeholder: string;
   type: OnboardingFieldType;
   required?: boolean;
-  /** For selects: include an explicit empty option (optional fields). */
+  /** Hide step unless this returns true for current answers. */
+  showWhen?: (answers: AnswersMap) => boolean;
+  /** Static select options (when not using resolveOptions). */
+  options?: { value: string; label: string }[];
+  /** Dynamic select options (e.g. state list depends on country). */
+  resolveOptions?: (answers: AnswersMap) => { value: string; label: string }[];
   allowSkip?: boolean;
   skipOptionLabel?: string;
-  options?: { value: string; label: string }[];
   autoComplete?: string;
   inputMode?: "text" | "tel" | "url" | "numeric";
 };
@@ -30,6 +43,17 @@ export const SPOKEN_LEVEL_OPTIONS = [
   { value: "professional", label: "Professional working" },
   { value: "conversational", label: "Conversational" },
   { value: "basic", label: "Basic" },
+] as const;
+
+export const INSTITUTION_TYPE_OPTIONS = [
+  { value: "public", label: "Public school" },
+  { value: "private", label: "Private school" },
+  { value: "charter", label: "Charter / magnet" },
+  { value: "international", label: "International / bilingual" },
+  { value: "religious", label: "Religious / parochial" },
+  { value: "homeschool", label: "Homeschooled" },
+  { value: "technical", label: "Technical / vocational" },
+  { value: "other", label: "Other" },
 ] as const;
 
 /** Single-select purpose values surfaced to tailor OMNI insights. */
@@ -56,11 +80,15 @@ export const OMNI_PURPOSE_OPTIONS = [
   },
 ] as const;
 
+function needsUsMexicoState(answers: AnswersMap): boolean {
+  const c = answers.countryOfResidence;
+  return c === "mx" || c === "us";
+}
+
 /**
- * Ordered flow: required demographic/context first (excluding email — captured at registration),
- * then optional contact/links/photo, then purpose-of-test (single-select).
+ * Full ordered definition list. Steps may be hidden per `showWhen`.
  */
-export const ONBOARDING_FIELDS: OnboardingField[] = [
+export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   {
     key: "legalFirstName",
     label: "Legal first name",
@@ -104,9 +132,9 @@ export const ONBOARDING_FIELDS: OnboardingField[] = [
     key: "dateOfBirth",
     label: "Date of birth",
     prompt: "What's your date of birth?",
-    helper: "Used for age-normed scoring. Stored securely.",
+    helper: "Pick month, day, and year — used for age-normed scoring.",
     placeholder: "",
-    type: "date",
+    type: "birth-date",
     required: true,
   },
   {
@@ -130,16 +158,28 @@ export const ONBOARDING_FIELDS: OnboardingField[] = [
     key: "countryOfResidence",
     label: "Country of residence",
     prompt: "Which country do you currently live in?",
-    placeholder: "e.g. Mexico",
-    type: "text",
+    placeholder: "Choose a country",
+    type: "select",
     required: true,
-    autoComplete: "country-name",
+    options: [...RESIDENCE_COUNTRY_OPTIONS],
+  },
+  {
+    key: "stateOfResidence",
+    label: "State / province",
+    prompt: "Which state or province do you live in?",
+    helper: "Shown for Mexico and the United States.",
+    placeholder: "Select your state",
+    type: "select",
+    required: true,
+    showWhen: needsUsMexicoState,
+    resolveOptions: (a) =>
+      a.countryOfResidence === "mx" ? MEXICO_STATE_OPTIONS : US_STATE_OPTIONS,
   },
   {
     key: "cityOfResidence",
     label: "City of residence",
     prompt: "Which city do you live in?",
-    placeholder: "e.g. Guadalajara",
+    placeholder: "e.g. Mazatlán",
     type: "text",
     required: true,
     autoComplete: "address-level2",
@@ -152,6 +192,52 @@ export const ONBOARDING_FIELDS: OnboardingField[] = [
     type: "text",
     required: true,
     autoComplete: "language",
+  },
+  {
+    key: "education_kindergarten",
+    label: "Kindergarten",
+    prompt: "Kindergarten — where did you go, and what type of school was it?",
+    helper:
+      "Skip if you prefer not to answer or don't remember — tap \"Skip this level\".",
+    placeholder: "",
+    type: "education-level",
+    required: true,
+  },
+  {
+    key: "education_elementary",
+    label: "Elementary school",
+    prompt: "Elementary school — school name and type?",
+    helper: "Skip if you don't remember.",
+    placeholder: "",
+    type: "education-level",
+    required: true,
+  },
+  {
+    key: "education_middleSchool",
+    label: "Middle / junior high",
+    prompt: "Middle or junior high — school name and type?",
+    helper: "Skip if not applicable or you don't remember.",
+    placeholder: "",
+    type: "education-level",
+    required: true,
+  },
+  {
+    key: "education_highSchool",
+    label: "High school",
+    prompt: "High school — school name and type?",
+    helper: "Skip if you don't remember.",
+    placeholder: "",
+    type: "education-level",
+    required: true,
+  },
+  {
+    key: "education_college",
+    label: "College / university",
+    prompt: "College or university — institution and type?",
+    helper: "Skip if you didn't attend or prefer not to say.",
+    placeholder: "",
+    type: "education-level",
+    required: true,
   },
   {
     key: "additionalLanguages",
@@ -268,3 +354,12 @@ export const ONBOARDING_FIELDS: OnboardingField[] = [
     options: [...OMNI_PURPOSE_OPTIONS],
   },
 ];
+
+export function getVisibleOnboardingFields(answers: AnswersMap): OnboardingField[] {
+  return ONBOARDING_FIELD_SEQUENCE.filter(
+    (f) => !f.showWhen || f.showWhen(answers),
+  );
+}
+
+/** @deprecated Use ONBOARDING_FIELD_SEQUENCE + getVisibleOnboardingFields */
+export const ONBOARDING_FIELDS = ONBOARDING_FIELD_SEQUENCE;

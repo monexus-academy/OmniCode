@@ -28,19 +28,36 @@ import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  ONBOARDING_FIELDS,
+  getVisibleOnboardingFields,
+  INSTITUTION_TYPE_OPTIONS,
   SPOKEN_LEVEL_OPTIONS,
+  type AnswersMap,
   type OnboardingField,
 } from "@/lib/onboarding-fields";
 import { storage } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 
-type Answers = Record<string, string>;
+type Answers = AnswersMap;
 
 type QuestionnaireProps = {
   onComplete: (answers: Answers) => Promise<void> | void;
 };
+
+const SELECT_FIELD_CLASSES = cn(
+  "h-14 w-full appearance-none rounded-xl border border-soft-lavender/25 bg-slate-indigo/55 px-4 pr-12 text-lg font-medium text-[#F8FAFC]",
+  "shadow-inner shadow-black/20 transition-all duration-300",
+  "hover:border-soft-lavender/45 hover:bg-slate-indigo/65",
+  "focus:border-electric-violet/80 focus:bg-slate-indigo/75 focus:outline-none focus:ring-4 focus:ring-electric-violet/25",
+  "[color-scheme:dark]",
+);
+
+const SELECT_FIELD_CLASSES_SM = cn(
+  "h-12 w-full appearance-none rounded-xl border border-soft-lavender/25 bg-slate-indigo/55 px-3 pr-10 text-sm font-medium text-[#F8FAFC]",
+  "shadow-inner shadow-black/20 transition-all duration-300",
+  "focus:border-electric-violet/80 focus:bg-slate-indigo/75 focus:outline-none focus:ring-4 focus:ring-electric-violet/25",
+  "[color-scheme:dark]",
+);
 
 type LanguageRow = { language: string; level: string };
 
@@ -65,6 +82,46 @@ function languageRowsValid(raw: string, required: boolean): boolean {
   );
   if (rows.length === 0) return !required;
   return rows.every((r) => r.language.trim().length > 0 && r.level.length > 0);
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+function composeIsoDate(year: number, month: number, day: number): string {
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+type EducationPayload = {
+  skipped?: boolean;
+  schoolName?: string;
+  institutionType?: string;
+};
+
+function parseEducationPayload(raw: string): EducationPayload {
+  try {
+    const p = JSON.parse(raw || "{}") as unknown;
+    if (!p || typeof p !== "object") return {};
+    const o = p as Record<string, unknown>;
+    return {
+      skipped: o.skipped === true,
+      schoolName: typeof o.schoolName === "string" ? o.schoolName : "",
+      institutionType:
+        typeof o.institutionType === "string" ? o.institutionType : "",
+    };
+  } catch {
+    return {};
+  }
+}
+
+function educationStepValid(raw: string): boolean {
+  const p = parseEducationPayload(raw);
+  if (p.skipped) return true;
+  return (
+    !!p.schoolName?.trim().length && !!p.institutionType?.trim().length
+  );
 }
 
 function isReasonableDateOfBirth(iso: string): boolean {
@@ -95,15 +152,22 @@ function optionalUrlValid(raw: string): boolean {
 function isStepValid(field: OnboardingField, value: string): boolean {
   if (!field.required && field.type !== "language-rows") {
     if (field.type === "url") return optionalUrlValid(value);
-    if (field.type === "date" && !value.trim()) return !field.required;
+    if (
+      (field.type === "birth-date" || field.type === "education-level") &&
+      !value.trim()
+    ) {
+      return !field.required;
+    }
     return true;
   }
 
   switch (field.type) {
     case "language-rows":
       return languageRowsValid(value, !!field.required);
-    case "date":
+    case "birth-date":
       return isReasonableDateOfBirth(value);
+    case "education-level":
+      return educationStepValid(value);
     case "url":
       if (!field.required) return optionalUrlValid(value);
       return optionalUrlValid(value) && value.trim().length > 0;
@@ -125,9 +189,20 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
   const [done, setDone] = useState(false);
   const [fieldBusy, setFieldBusy] = useState(false);
 
-  const totalSteps = ONBOARDING_FIELDS.length;
-  const isLast = stepIndex === totalSteps - 1;
-  const field = ONBOARDING_FIELDS[stepIndex];
+  const visibleFields = useMemo(
+    () => getVisibleOnboardingFields(answers),
+    [answers],
+  );
+
+  useEffect(() => {
+    setStepIndex((idx) => {
+      if (visibleFields.length === 0) return 0;
+      return Math.min(idx, visibleFields.length - 1);
+    });
+  }, [visibleFields]);
+
+  const totalSteps = visibleFields.length;
+  const field = visibleFields[stepIndex];
   const value =
     field.type === "language-rows"
       ? (answers[field.key] ?? "[]")
@@ -142,17 +217,40 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
       chunk = rows.length > 0 ? 0.5 : 0;
     }
     if (field.type === "profile-photo" && value.trim()) chunk = 0.5;
-    return ((stepIndex + chunk) / totalSteps) * 100;
+    if (field.type === "education-level") {
+      const p = parseEducationPayload(value);
+      chunk =
+        p.skipped ||
+        (!!p.schoolName?.trim().length && !!p.institutionType?.trim().length)
+          ? 0.5
+          : 0;
+    }
+    if (field.type === "birth-date" && isReasonableDateOfBirth(value)) {
+      chunk = 0.5;
+    }
+    return ((stepIndex + chunk) / Math.max(totalSteps, 1)) * 100;
   }, [field.key, field.type, stepIndex, totalSteps, value]);
 
-  const stepOk = isStepValid(field, value);
+  const stepOk = field ? isStepValid(field, value) : false;
 
   const setValue = useCallback((key: string, val: string) => {
-    setAnswers((prev) => ({ ...prev, [key]: val }));
+    setAnswers((prev) => {
+      const next = { ...prev, [key]: val };
+      if (key === "countryOfResidence") {
+        if (val !== "mx" && val !== "us") {
+          next.stateOfResidence = "";
+        } else if (prev.countryOfResidence !== val) {
+          next.stateOfResidence = "";
+        }
+      }
+      return next;
+    });
   }, []);
 
+  const isLast = stepIndex >= totalSteps - 1;
+
   const goNext = useCallback(async () => {
-    if (!stepOk || submitting || fieldBusy) return;
+    if (!field || !stepOk || submitting || fieldBusy) return;
     if (isLast) {
       setSubmitting(true);
       try {
@@ -164,10 +262,10 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
       return;
     }
     setDirection(1);
-    setStepIndex((i) => Math.min(i + 1, totalSteps - 1));
+    setStepIndex((i) => Math.min(i + 1, Math.max(totalSteps - 1, 0)));
   }, [
     answers,
-    field.key,
+    field,
     fieldBusy,
     isLast,
     onComplete,
@@ -187,17 +285,15 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
     function onKey(e: globalThis.KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       const inTextarea = target?.tagName === "TEXTAREA";
-      const inSelect = target?.tagName === "SELECT";
       if (e.key === "Enter" && !e.shiftKey) {
         if (inTextarea) return;
-        if (inSelect && field.type === "select") {
+        if (target?.closest("[data-language-rows]")) return;
+        if (target?.closest("[data-birth-date]")) return;
+        if (target?.closest("[data-education-level]")) return;
+        const inSelect = target?.tagName === "SELECT";
+        if (inSelect && field?.type === "select") {
           e.preventDefault();
           void goNext();
-          return;
-        }
-        if (
-          target?.closest("[data-language-rows]")
-        ) {
           return;
         }
         e.preventDefault();
@@ -209,10 +305,18 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [field.type, goBack, goNext]);
+  }, [field?.type, goBack, goNext]);
 
   if (done) {
     return <CompletedView email={user?.email ?? null} />;
+  }
+
+  if (!field) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-soft-lavender" />
+      </div>
+    );
   }
 
   return (
@@ -265,7 +369,11 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
               <div className="space-y-3">
                 <p className="text-xs font-medium uppercase tracking-[0.3em] text-soft-lavender/60">
                   Question {stepIndex + 1}
-                  {field.required ? "" : " · optional"}
+                  {field.type === "education-level"
+                    ? " · skip if unsure"
+                    : field.required
+                      ? ""
+                      : " · optional"}
                 </p>
                 <h2 className="font-display text-balance text-4xl font-semibold leading-[1.1] tracking-tight text-off-white sm:text-5xl">
                   {field.prompt}
@@ -279,6 +387,7 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
 
               <FieldRenderer
                 field={field}
+                answers={answers}
                 value={value}
                 userId={user?.uid ?? null}
                 onChange={(v) => setValue(field.key, v)}
@@ -341,6 +450,7 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
 
 type FieldRendererProps = {
   field: OnboardingField;
+  answers: AnswersMap;
   value: string;
   userId: string | null;
   onChange: (value: string) => void;
@@ -348,22 +458,303 @@ type FieldRendererProps = {
   onEnter: () => void;
 };
 
+function BirthDatePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (iso: string) => void;
+}) {
+  const now = useMemo(() => new Date(), []);
+  const maxYear = now.getFullYear() - 4;
+  const minYear = now.getFullYear() - 100;
+
+  const years = useMemo(() => {
+    const ys: number[] = [];
+    for (let y = maxYear; y >= minYear; y--) ys.push(y);
+    return ys;
+  }, [maxYear, minYear]);
+
+  const months = useMemo(
+    () =>
+      [
+        [1, "January"],
+        [2, "February"],
+        [3, "March"],
+        [4, "April"],
+        [5, "May"],
+        [6, "June"],
+        [7, "July"],
+        [8, "August"],
+        [9, "September"],
+        [10, "October"],
+        [11, "November"],
+        [12, "December"],
+      ] as const,
+    [],
+  );
+
+  const py =
+    value && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? Number(value.slice(0, 4))
+      : "";
+  const pm =
+    value && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? Number(value.slice(5, 7))
+      : "";
+  const pd =
+    value && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? Number(value.slice(8, 10))
+      : "";
+
+  const safeYear = typeof py === "number" && py > 0 ? py : maxYear;
+  const safeMonth = typeof pm === "number" && pm > 0 ? pm : 1;
+  const effectiveYear = typeof py === "number" && py > 0 ? py : safeYear;
+  const effectiveMonth = typeof pm === "number" && pm > 0 ? pm : safeMonth;
+  const dim = daysInMonth(effectiveYear, effectiveMonth);
+
+  const days = useMemo(() => {
+    const list: number[] = [];
+    for (let d = 1; d <= dim; d++) list.push(d);
+    return list;
+  }, [dim]);
+
+  function emit(nextY: number | "", nextM: number | "", nextD: number | "") {
+    if (!nextY || !nextM || !nextD) {
+      onChange("");
+      return;
+    }
+    const maxD = daysInMonth(nextY, nextM);
+    const clampedD = Math.min(nextD, maxD);
+    const iso = composeIsoDate(nextY, nextM, clampedD);
+    if (isReasonableDateOfBirth(iso)) onChange(iso);
+    else onChange("");
+  }
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-3" data-birth-date="">
+      <div>
+        <label className="mb-2 block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+          Month
+        </label>
+        <div className="relative">
+          <select
+            className={SELECT_FIELD_CLASSES}
+            value={pm === "" ? "" : String(pm)}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (!v) return emit("", "", "");
+              const m = Number(v);
+              emit(py === "" ? safeYear : py, m, pd === "" ? 1 : pd);
+            }}
+          >
+            <option value="" disabled className="bg-midnight-navy">
+              Month
+            </option>
+            {months.map(([num, label]) => (
+              <option key={num} value={String(num)} className="bg-midnight-navy">
+                {label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-2 block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+          Day
+        </label>
+        <div className="relative">
+          <select
+            className={SELECT_FIELD_CLASSES}
+            value={pd === "" ? "" : String(pd)}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (!v) return emit("", "", "");
+              const d = Number(v);
+              const baseY = py === "" ? safeYear : py;
+              const baseM = pm === "" ? safeMonth : pm;
+              emit(baseY, baseM, d);
+            }}
+          >
+            <option value="" disabled className="bg-midnight-navy">
+              Day
+            </option>
+            {days.map((d) => (
+              <option key={d} value={String(d)} className="bg-midnight-navy">
+                {String(d).padStart(2, "0")}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-2 block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+          Year
+        </label>
+        <div className="relative">
+          <select
+            className={SELECT_FIELD_CLASSES}
+            value={py === "" ? "" : String(py)}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (!v) return emit("", "", "");
+              const y = Number(v);
+              emit(y, pm === "" ? 1 : pm, pd === "" ? 1 : pd);
+            }}
+          >
+            <option value="" disabled className="bg-midnight-navy">
+              Year
+            </option>
+            {years.map((y) => (
+              <option key={y} value={String(y)} className="bg-midnight-navy">
+                {y}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EducationLevelEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (json: string) => void;
+}) {
+  const payload = parseEducationPayload(value);
+
+  const sync = useCallback(
+    (patch: Partial<EducationPayload>) => {
+      const base = parseEducationPayload(
+        value && value !== "{}" ? value : "{}",
+      );
+      const next: EducationPayload = {
+        skipped: false,
+        schoolName: base.schoolName ?? "",
+        institutionType: base.institutionType ?? "",
+        ...patch,
+      };
+      if (patch.skipped) {
+        next.skipped = true;
+        next.schoolName = "";
+        next.institutionType = "";
+      }
+      onChange(JSON.stringify(next));
+    },
+    [onChange, value],
+  );
+
+  const skipped = payload.skipped === true;
+
+  return (
+    <div className="space-y-6" data-education-level="">
+      <div className="flex flex-wrap gap-3">
+        <Button
+          type="button"
+          variant={skipped ? "primary" : "outline"}
+          size="md"
+          onClick={() => sync({ skipped: true })}
+        >
+          Skip this level
+        </Button>
+        {!skipped ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="md"
+            className="text-soft-lavender"
+            onClick={() =>
+              sync({
+                skipped: false,
+                schoolName: payload.schoolName ?? "",
+                institutionType: payload.institutionType ?? "",
+              })
+            }
+          >
+            I remember — fill details
+          </Button>
+        ) : null}
+      </div>
+
+      <div className={cn("space-y-4", skipped && "pointer-events-none opacity-40")}>
+        <div className="space-y-2">
+          <label className="text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+            School / institution name
+          </label>
+          <Input
+            value={payload.schoolName ?? ""}
+            disabled={skipped}
+            placeholder="e.g. Lincoln Elementary"
+            className="h-14 text-lg"
+            onChange={(e) =>
+              sync({
+                skipped: false,
+                schoolName: e.target.value,
+                institutionType: payload.institutionType ?? "",
+              })
+            }
+          />
+        </div>
+
+        <div className="relative space-y-2">
+          <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+            Type of institution
+          </label>
+          <div className="relative">
+            <select
+              disabled={skipped}
+              value={payload.institutionType ?? ""}
+              onChange={(e) =>
+                sync({
+                  skipped: false,
+                  schoolName: payload.schoolName ?? "",
+                  institutionType: e.target.value,
+                })
+              }
+              className={SELECT_FIELD_CLASSES}
+            >
+              <option value="" disabled className="bg-midnight-navy">
+                Select type
+              </option>
+              {INSTITUTION_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value} className="bg-midnight-navy">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FieldRenderer({
   field,
+  answers,
   value,
   userId,
   onChange,
   onBusy,
   onEnter,
 }: FieldRendererProps) {
-  const inputRef = useRef<
-    HTMLInputElement | HTMLSelectElement | null
-  >(null);
+  const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
 
   useEffect(() => {
     if (
       field.type === "language-rows" ||
-      field.type === "profile-photo"
+      field.type === "profile-photo" ||
+      field.type === "birth-date" ||
+      field.type === "education-level"
     ) {
       return;
     }
@@ -394,18 +785,25 @@ function FieldRenderer({
     );
   }
 
-  if (field.type === "select" && field.options) {
+  if (field.type === "birth-date") {
+    return <BirthDatePicker value={value} onChange={onChange} />;
+  }
+
+  if (field.type === "education-level") {
+    return <EducationLevelEditor value={value} onChange={onChange} />;
+  }
+
+  if (field.type === "select") {
+    const opts = field.resolveOptions
+      ? field.resolveOptions(answers)
+      : field.options ?? [];
     return (
       <div className="relative">
         <select
           ref={inputRef as RefObject<HTMLSelectElement>}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={cn(
-            "h-14 w-full appearance-none rounded-xl border border-soft-lavender/15 bg-off-white/[0.03] px-4 pr-12 text-lg text-off-white",
-            "transition-all duration-300 hover:border-soft-lavender/30 hover:bg-off-white/[0.05]",
-            "focus:border-electric-violet/70 focus:bg-off-white/[0.06] focus:outline-none focus:ring-4 focus:ring-electric-violet/15",
-          )}
+          className={SELECT_FIELD_CLASSES}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -422,7 +820,7 @@ function FieldRenderer({
               {field.skipOptionLabel ?? "Skip"}
             </option>
           ) : null}
-          {field.options.map((opt) => (
+          {opts.map((opt) => (
             <option
               key={opt.value}
               value={opt.value}
@@ -438,13 +836,7 @@ function FieldRenderer({
   }
 
   const inputType =
-    field.type === "date"
-      ? "date"
-      : field.type === "tel"
-        ? "tel"
-        : field.type === "url"
-          ? "url"
-          : "text";
+    field.type === "tel" ? "tel" : field.type === "url" ? "url" : "text";
 
   return (
     <Input
@@ -455,8 +847,6 @@ function FieldRenderer({
       placeholder={field.placeholder}
       autoComplete={field.autoComplete}
       inputMode={field.inputMode}
-      max={field.type === "date" ? new Date().toISOString().slice(0, 10) : undefined}
-      min={field.type === "date" ? "1900-01-01" : undefined}
       className="h-14 text-lg"
       onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
         if (e.key === "Enter") {
@@ -533,10 +923,7 @@ function LanguageRowsEditor({
                   <select
                     value={row.level}
                     onChange={(e) => updateRow(index, { level: e.target.value })}
-                    className={cn(
-                      "h-12 w-full appearance-none rounded-xl border border-soft-lavender/15 bg-off-white/[0.03] px-3 pr-10 text-sm text-off-white",
-                      "focus:border-electric-violet/70 focus:outline-none focus:ring-4 focus:ring-electric-violet/15",
-                    )}
+                    className={SELECT_FIELD_CLASSES_SM}
                   >
                     <option value="" className="bg-midnight-navy">
                       Select level
@@ -611,7 +998,7 @@ function ProfilePhotoPicker({
         ext && ["jpg", "jpeg", "png", "webp", "gif"].includes(ext)
           ? ext
           : "jpg";
-      const path = `profiles/${userId}/profile-photo-${Date.now()}.${safeExt}`;
+      const path = `OmniUsers/${userId}/profile-photo-${Date.now()}.${safeExt}`;
       const storageRef = ref(storage, path);
       await uploadBytes(storageRef, file, { contentType: file.type });
       const url = await getDownloadURL(storageRef);
