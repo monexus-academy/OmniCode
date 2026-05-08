@@ -34,6 +34,7 @@ import {
   type AnswersMap,
   type OnboardingField,
 } from "@/lib/onboarding-fields";
+import { getCityFieldMode } from "@/lib/city-options";
 import { storage } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
@@ -94,34 +95,184 @@ function composeIsoDate(year: number, month: number, day: number): string {
   return `${year}-${mm}-${dd}`;
 }
 
+type EducationEntry = {
+  schoolName: string;
+  institutionType: string;
+  collegeStatus?: string;
+  finishedYear?: string;
+};
+
 type EducationPayload = {
   skipped?: boolean;
+  entries?: EducationEntry[];
+  /** Legacy single-school shape */
   schoolName?: string;
   institutionType?: string;
+  collegeStatus?: string;
+  finishedYear?: string;
 };
+
+const COLLEGE_STATUS_OPTIONS = [
+  { value: "currently-studying", label: "Currently studying" },
+  { value: "finished", label: "Finished / graduated" },
+] as const;
+
+function emptyEducationEntry(mode: "standard" | "college"): EducationEntry {
+  const base: EducationEntry = { schoolName: "", institutionType: "" };
+  if (mode === "college") {
+    base.collegeStatus = "";
+    base.finishedYear = "";
+  }
+  return base;
+}
 
 function parseEducationPayload(raw: string): EducationPayload {
   try {
     const p = JSON.parse(raw || "{}") as unknown;
     if (!p || typeof p !== "object") return {};
     const o = p as Record<string, unknown>;
+    const skipped = o.skipped === true;
+    let entries: EducationEntry[] | undefined;
+    if (Array.isArray(o.entries)) {
+      entries = o.entries
+        .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+        .map((item) => ({
+          schoolName:
+            typeof item.schoolName === "string" ? item.schoolName : "",
+          institutionType:
+            typeof item.institutionType === "string"
+              ? item.institutionType
+              : "",
+          collegeStatus:
+            typeof item.collegeStatus === "string"
+              ? item.collegeStatus
+              : "",
+          finishedYear:
+            typeof item.finishedYear === "string" ? item.finishedYear : "",
+        }));
+    }
     return {
-      skipped: o.skipped === true,
+      skipped,
+      entries,
       schoolName: typeof o.schoolName === "string" ? o.schoolName : "",
       institutionType:
         typeof o.institutionType === "string" ? o.institutionType : "",
+      collegeStatus:
+        typeof o.collegeStatus === "string" ? o.collegeStatus : "",
+      finishedYear:
+        typeof o.finishedYear === "string" ? o.finishedYear : "",
     };
   } catch {
     return {};
   }
 }
 
-function educationStepValid(raw: string): boolean {
-  const p = parseEducationPayload(raw);
-  if (p.skipped) return true;
-  return (
-    !!p.schoolName?.trim().length && !!p.institutionType?.trim().length
-  );
+function normalizeEducationPayload(
+  parsed: EducationPayload,
+  mode: "standard" | "college",
+): { skipped: true; entries: EducationEntry[] } | { skipped: false; entries: EducationEntry[] } {
+  if (parsed.skipped) {
+    return { skipped: true, entries: [] };
+  }
+
+  let entries = parsed.entries;
+  const legacyName =
+    typeof parsed.schoolName === "string" ? parsed.schoolName.trim() : "";
+  const legacyType =
+    typeof parsed.institutionType === "string"
+      ? parsed.institutionType.trim()
+      : "";
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    if (legacyName.length > 0 || legacyType.length > 0) {
+      entries = [
+        {
+          schoolName: legacyName,
+          institutionType: legacyType,
+          ...(mode === "college"
+            ? {
+                collegeStatus:
+                  typeof parsed.collegeStatus === "string"
+                    ? parsed.collegeStatus
+                    : "",
+                finishedYear:
+                  typeof parsed.finishedYear === "string"
+                    ? parsed.finishedYear
+                    : "",
+              }
+            : {}),
+        },
+      ];
+    } else {
+      entries = [emptyEducationEntry(mode)];
+    }
+  }
+
+  const normalized = entries.map((e) => ({
+    schoolName: typeof e.schoolName === "string" ? e.schoolName : "",
+    institutionType:
+      typeof e.institutionType === "string" ? e.institutionType : "",
+    ...(mode === "college"
+      ? {
+          collegeStatus:
+            typeof e.collegeStatus === "string" ? e.collegeStatus : "",
+          finishedYear:
+            typeof e.finishedYear === "string" ? e.finishedYear : "",
+        }
+      : {}),
+  }));
+
+  return { skipped: false, entries: normalized };
+}
+
+function educationEntryValid(entry: EducationEntry, mode: "standard" | "college"): boolean {
+  if (!entry.schoolName.trim() || !entry.institutionType.trim()) return false;
+  if (mode !== "college") return true;
+  const st = (entry.collegeStatus ?? "").trim();
+  if (st !== "currently-studying" && st !== "finished") return false;
+  if (st === "finished") {
+    const y = (entry.finishedYear ?? "").trim();
+    if (!/^\d{4}$/.test(y)) return false;
+    const yi = Number(y);
+    const now = new Date().getFullYear();
+    if (yi < 1950 || yi > now + 1) return false;
+  }
+  return true;
+}
+
+function educationStepValid(
+  raw: string,
+  mode: "standard" | "college",
+): boolean {
+  const parsed = parseEducationPayload(raw);
+  if (parsed.skipped) return true;
+  const n = normalizeEducationPayload(parsed, mode);
+  if (n.skipped) return true;
+  if (n.entries.length === 0) return false;
+  return n.entries.every((e) => educationEntryValid(e, mode));
+}
+
+function educationHasPartialProgress(
+  raw: string,
+  mode: "standard" | "college",
+): boolean {
+  const parsed = parseEducationPayload(raw);
+  if (parsed.skipped) return true;
+  const n = normalizeEducationPayload(parsed, mode);
+  if (n.skipped) return true;
+  return n.entries.some((e) => {
+    if (!e.schoolName.trim() || !e.institutionType.trim()) return false;
+    if (mode === "college") {
+      const st = (e.collegeStatus ?? "").trim();
+      if (st === "currently-studying") return true;
+      if (st === "finished") {
+        const y = (e.finishedYear ?? "").trim();
+        return /^\d{4}$/.test(y);
+      }
+      return false;
+    }
+    return true;
+  });
 }
 
 function isReasonableDateOfBirth(iso: string): boolean {
@@ -167,7 +318,7 @@ function isStepValid(field: OnboardingField, value: string): boolean {
     case "birth-date":
       return isReasonableDateOfBirth(value);
     case "education-level":
-      return educationStepValid(value);
+      return educationStepValid(value, field.educationMode ?? "standard");
     case "url":
       if (!field.required) return optionalUrlValid(value);
       return optionalUrlValid(value) && value.trim().length > 0;
@@ -217,13 +368,14 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
       chunk = rows.length > 0 ? 0.5 : 0;
     }
     if (field.type === "profile-photo" && value.trim()) chunk = 0.5;
+    if (field.type === "city" && value.trim()) chunk = 0.5;
     if (field.type === "education-level") {
-      const p = parseEducationPayload(value);
-      chunk =
-        p.skipped ||
-        (!!p.schoolName?.trim().length && !!p.institutionType?.trim().length)
-          ? 0.5
-          : 0;
+      chunk = educationHasPartialProgress(
+        value,
+        field.educationMode ?? "standard",
+      )
+        ? 0.5
+        : 0;
     }
     if (field.type === "birth-date" && isReasonableDateOfBirth(value)) {
       chunk = 0.5;
@@ -242,6 +394,10 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
         } else if (prev.countryOfResidence !== val) {
           next.stateOfResidence = "";
         }
+        next.cityOfResidence = "";
+      }
+      if (key === "stateOfResidence" && prev.stateOfResidence !== val) {
+        next.cityOfResidence = "";
       }
       return next;
     });
@@ -625,34 +781,65 @@ function BirthDatePicker({
 function EducationLevelEditor({
   value,
   onChange,
+  mode,
 }: {
   value: string;
   onChange: (json: string) => void;
+  mode: "standard" | "college";
 }) {
-  const payload = parseEducationPayload(value);
-
-  const sync = useCallback(
-    (patch: Partial<EducationPayload>) => {
-      const base = parseEducationPayload(
-        value && value !== "{}" ? value : "{}",
-      );
-      const next: EducationPayload = {
-        skipped: false,
-        schoolName: base.schoolName ?? "",
-        institutionType: base.institutionType ?? "",
-        ...patch,
-      };
-      if (patch.skipped) {
-        next.skipped = true;
-        next.schoolName = "";
-        next.institutionType = "";
-      }
-      onChange(JSON.stringify(next));
-    },
-    [onChange, value],
+  const normalized = useMemo(
+    () => normalizeEducationPayload(parseEducationPayload(value), mode),
+    [value, mode],
   );
 
-  const skipped = payload.skipped === true;
+  const skipped = normalized.skipped === true;
+  const entries = normalized.entries ?? [];
+
+  const persist = useCallback(
+    (payload: { skipped: boolean; entries: EducationEntry[] }) => {
+      if (payload.skipped) {
+        onChange(JSON.stringify({ skipped: true, entries: [] }));
+      } else {
+        onChange(JSON.stringify({ skipped: false, entries: payload.entries }));
+      }
+    },
+    [onChange],
+  );
+
+  const updateEntries = useCallback(
+    (nextEntries: EducationEntry[]) => {
+      persist({ skipped: false, entries: nextEntries });
+    },
+    [persist],
+  );
+
+  const updateEntry = useCallback(
+    (index: number, patch: Partial<EducationEntry>) => {
+      updateEntries(
+        entries.map((e, i) => (i === index ? { ...e, ...patch } : e)),
+      );
+    },
+    [entries, updateEntries],
+  );
+
+  const addEntry = useCallback(() => {
+    updateEntries([...entries, emptyEducationEntry(mode)]);
+  }, [entries, mode, updateEntries]);
+
+  const removeEntry = useCallback(
+    (index: number) => {
+      if (entries.length <= 1) return;
+      updateEntries(entries.filter((_, i) => i !== index));
+    },
+    [entries, updateEntries],
+  );
+
+  const yearOptions = useMemo(() => {
+    const cy = new Date().getFullYear();
+    const ys: number[] = [];
+    for (let y = cy + 1; y >= 1950; y--) ys.push(y);
+    return ys;
+  }, []);
 
   return (
     <div className="space-y-6" data-education-level="">
@@ -661,78 +848,187 @@ function EducationLevelEditor({
           type="button"
           variant={skipped ? "primary" : "outline"}
           size="md"
-          onClick={() => sync({ skipped: true })}
+          onClick={() => persist({ skipped: true, entries: [] })}
         >
           Skip this level
         </Button>
-        {!skipped ? (
+        {skipped ? (
           <Button
             type="button"
             variant="ghost"
             size="md"
             className="text-soft-lavender"
             onClick={() =>
-              sync({
+              persist({
                 skipped: false,
-                schoolName: payload.schoolName ?? "",
-                institutionType: payload.institutionType ?? "",
+                entries: [emptyEducationEntry(mode)],
               })
             }
           >
-            I remember — fill details
+            I want to answer
           </Button>
         ) : null}
       </div>
 
-      <div className={cn("space-y-4", skipped && "pointer-events-none opacity-40")}>
-        <div className="space-y-2">
-          <label className="text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-            School / institution name
-          </label>
-          <Input
-            value={payload.schoolName ?? ""}
-            disabled={skipped}
-            placeholder="e.g. Lincoln Elementary"
-            className="h-14 text-lg"
-            onChange={(e) =>
-              sync({
-                skipped: false,
-                schoolName: e.target.value,
-                institutionType: payload.institutionType ?? "",
-              })
-            }
-          />
-        </div>
+      <div
+        className={cn(
+          "space-y-6",
+          skipped && "pointer-events-none opacity-40",
+        )}
+      >
+        {entries.map((entry, index) => (
+          <div
+            key={index}
+            className="space-y-4 rounded-2xl border border-soft-lavender/15 bg-off-white/[0.03] p-5"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/65">
+                School {index + 1}
+                {mode === "college" ? " · mark finished vs still enrolled per row" : ""}
+              </span>
+              {entries.length > 1 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-soft-lavender hover:text-red-300"
+                  onClick={() => removeEntry(index)}
+                  aria-label={`Remove school ${index + 1}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              ) : null}
+            </div>
 
-        <div className="relative space-y-2">
-          <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-            Type of institution
-          </label>
-          <div className="relative">
-            <select
-              disabled={skipped}
-              value={payload.institutionType ?? ""}
-              onChange={(e) =>
-                sync({
-                  skipped: false,
-                  schoolName: payload.schoolName ?? "",
-                  institutionType: e.target.value,
-                })
-              }
-              className={SELECT_FIELD_CLASSES}
-            >
-              <option value="" disabled className="bg-midnight-navy">
-                Select type
-              </option>
-              {INSTITUTION_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} className="bg-midnight-navy">
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+            <div className="space-y-2">
+              <label className="text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                School / institution name
+              </label>
+              <Input
+                value={entry.schoolName}
+                disabled={skipped}
+                placeholder="e.g. Lincoln Elementary"
+                className="h-14 text-lg"
+                onChange={(e) =>
+                  updateEntry(index, {
+                    schoolName: e.target.value,
+                  })
+                }
+              />
+            </div>
+
+            <div className="relative space-y-2">
+              <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                Type of institution
+              </label>
+              <div className="relative">
+                <select
+                  disabled={skipped}
+                  value={entry.institutionType}
+                  onChange={(e) =>
+                    updateEntry(index, { institutionType: e.target.value })
+                  }
+                  className={SELECT_FIELD_CLASSES}
+                >
+                  <option value="" disabled className="bg-midnight-navy">
+                    Select type
+                  </option>
+                  {INSTITUTION_TYPE_OPTIONS.map((opt) => (
+                    <option
+                      key={opt.value}
+                      value={opt.value}
+                      className="bg-midnight-navy"
+                    >
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+              </div>
+            </div>
+
+            {mode === "college" ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="relative space-y-2">
+                  <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                    Status at this institution
+                  </label>
+                  <div className="relative">
+                    <select
+                      disabled={skipped}
+                      value={entry.collegeStatus ?? ""}
+                      onChange={(e) =>
+                        updateEntry(index, {
+                          collegeStatus: e.target.value,
+                          finishedYear:
+                            e.target.value === "finished"
+                              ? (entry.finishedYear ?? "")
+                              : "",
+                        })
+                      }
+                      className={SELECT_FIELD_CLASSES}
+                    >
+                      <option value="" disabled className="bg-midnight-navy">
+                        Select status
+                      </option>
+                      {COLLEGE_STATUS_OPTIONS.map((opt) => (
+                        <option
+                          key={opt.value}
+                          value={opt.value}
+                          className="bg-midnight-navy"
+                        >
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                  </div>
+                </div>
+
+                {(entry.collegeStatus ?? "") === "finished" ? (
+                  <div className="relative space-y-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      Finished / graduated in
+                    </label>
+                    <div className="relative">
+                      <select
+                        disabled={skipped}
+                        value={entry.finishedYear ?? ""}
+                        onChange={(e) =>
+                          updateEntry(index, {
+                            finishedYear: e.target.value,
+                          })
+                        }
+                        className={SELECT_FIELD_CLASSES}
+                      >
+                        <option value="" disabled className="bg-midnight-navy">
+                          Year
+                        </option>
+                        {yearOptions.map((y) => (
+                          <option
+                            key={y}
+                            value={String(y)}
+                            className="bg-midnight-navy"
+                          >
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-        </div>
+        ))}
+
+        {!skipped ? (
+          <Button type="button" variant="outline" size="md" onClick={addEntry}>
+            <Plus className="h-4 w-4" />
+            Add another school at this level
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -747,6 +1043,11 @@ function FieldRenderer({
   onBusy,
   onEnter,
 }: FieldRendererProps) {
+  const cityMode = useMemo(() => {
+    if (field.type !== "city") return null;
+    return getCityFieldMode(answers);
+  }, [field.type, answers.countryOfResidence, answers.stateOfResidence]);
+
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
 
   useEffect(() => {
@@ -790,7 +1091,93 @@ function FieldRenderer({
   }
 
   if (field.type === "education-level") {
-    return <EducationLevelEditor value={value} onChange={onChange} />;
+    return (
+      <EducationLevelEditor
+        value={value}
+        onChange={onChange}
+        mode={field.educationMode ?? "standard"}
+      />
+    );
+  }
+
+  if (field.type === "city" && cityMode) {
+    if (cityMode.kind === "text") {
+      return (
+        <div className="space-y-3">
+          {cityMode.helper ? (
+            <p className="text-sm text-soft-lavender/70">{cityMode.helper}</p>
+          ) : null}
+          <Input
+            ref={inputRef as RefObject<HTMLInputElement>}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Type your city"
+            autoComplete={field.autoComplete}
+            className="h-14 text-lg"
+            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onEnter();
+              }
+            }}
+          />
+        </div>
+      );
+    }
+
+    if (cityMode.options.length === 0) {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-amber-200/85">
+            We couldn't load cities for this state. Please type your city below.
+          </p>
+          <Input
+            ref={inputRef as RefObject<HTMLInputElement>}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Your city"
+            className="h-14 text-lg"
+            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onEnter();
+              }
+            }}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="relative">
+        <select
+          ref={inputRef as RefObject<HTMLSelectElement>}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={SELECT_FIELD_CLASSES}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onEnter();
+            }
+          }}
+        >
+          <option value="" disabled className="bg-midnight-navy text-soft-lavender/60">
+            {field.placeholder}
+          </option>
+          {cityMode.options.map((opt, i) => (
+            <option
+              key={`${opt.value}-${i}`}
+              value={opt.value}
+              className="bg-midnight-navy text-off-white"
+            >
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+      </div>
+    );
   }
 
   if (field.type === "select") {

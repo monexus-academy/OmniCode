@@ -12,6 +12,7 @@ export type OnboardingFieldType =
   | "url"
   | "birth-date"
   | "select"
+  | "city"
   | "language-rows"
   | "profile-photo"
   | "education-level";
@@ -34,6 +35,8 @@ export type OnboardingField = {
   skipOptionLabel?: string;
   autoComplete?: string;
   inputMode?: "text" | "tel" | "url" | "numeric";
+  /** When `education-level`: college collects status/year per institution. */
+  educationMode?: "standard" | "college";
 };
 
 /** Proficiency levels for additional spoken languages (stored per row). */
@@ -179,8 +182,10 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
     key: "cityOfResidence",
     label: "City of residence",
     prompt: "Which city do you live in?",
-    placeholder: "e.g. Mazatlán",
-    type: "text",
+    helper:
+      "Mexico & US: choose from cities in your selected state. Canada: type your city.",
+    placeholder: "Select your city",
+    type: "city",
     required: true,
     autoComplete: "address-level2",
   },
@@ -198,7 +203,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
     label: "Kindergarten",
     prompt: "Kindergarten — where did you go, and what type of school was it?",
     helper:
-      "Skip if you prefer not to answer or don't remember — tap \"Skip this level\".",
+      'Use \"Add another school\" if you attended more than one. Skip this entire step if you prefer.',
     placeholder: "",
     type: "education-level",
     required: true,
@@ -207,7 +212,8 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
     key: "education_elementary",
     label: "Elementary school",
     prompt: "Elementary school — school name and type?",
-    helper: "Skip if you don't remember.",
+    helper:
+      "Attended more than one elementary? Add each school. Skip if you don't remember.",
     placeholder: "",
     type: "education-level",
     required: true,
@@ -216,7 +222,8 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
     key: "education_middleSchool",
     label: "Middle / junior high",
     prompt: "Middle or junior high — school name and type?",
-    helper: "Skip if not applicable or you don't remember.",
+    helper:
+      "Multiple schools at this level? Add each one. Skip if not applicable or you don't remember.",
     placeholder: "",
     type: "education-level",
     required: true,
@@ -225,7 +232,8 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
     key: "education_highSchool",
     label: "High school",
     prompt: "High school — school name and type?",
-    helper: "Skip if you don't remember.",
+    helper:
+      "Transferred schools? Add another row for each. Skip if you don't remember.",
     placeholder: "",
     type: "education-level",
     required: true,
@@ -233,11 +241,13 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   {
     key: "education_college",
     label: "College / university",
-    prompt: "College or university — institution and type?",
-    helper: "Skip if you didn't attend or prefer not to say.",
+    prompt: "College or university — tell us about each institution.",
+    helper:
+      "Add each college separately. For every row: say if you're currently studying or finished (with graduation year when finished).",
     placeholder: "",
     type: "education-level",
     required: true,
+    educationMode: "college",
   },
   {
     key: "additionalLanguages",
