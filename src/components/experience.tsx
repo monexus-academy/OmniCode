@@ -23,11 +23,33 @@ export function Experience() {
   const handleComplete = useCallback(
     async (answers: Record<string, string>) => {
       if (!user) return;
+
+      let additionalLanguagesParsed: { language: string; level: string }[] = [];
+      try {
+        const raw = answers.additionalLanguages ?? "[]";
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) {
+          additionalLanguagesParsed = parsed
+            .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+            .map((item) => ({
+              language:
+                typeof item.language === "string" ? item.language.trim() : "",
+              level: typeof item.level === "string" ? item.level : "",
+            }))
+            .filter((row) => row.language.length > 0 && row.level.length > 0);
+        }
+      } catch {
+        additionalLanguagesParsed = [];
+      }
+
+      const { additionalLanguages: _drop, ...rest } = answers;
+
       try {
         await setDoc(
           doc(db, "profiles", user.uid),
           {
-            ...answers,
+            ...rest,
+            additionalLanguages: additionalLanguagesParsed,
             email: user.email,
             updatedAt: serverTimestamp(),
           },
