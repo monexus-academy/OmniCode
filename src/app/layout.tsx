@@ -1,8 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 
-import { AuthProvider } from "@/lib/auth-context";
-
 import "./globals.css";
 
 const inter = Inter({
@@ -18,9 +16,8 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Omnitest — A more thoughtful way to be assessed",
-  description:
-    "Omnitest is an immersive, professional testing experience. Sign in or create an account to begin.",
+  title: "Omnitest",
+  description: "",
 };
 
 export const viewport: Viewport = {
@@ -35,7 +32,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
       <body className="min-h-screen bg-midnight-navy text-off-white antialiased">
-        <AuthProvider>{children}</AuthProvider>
+        {children}
       </body>
     </html>
   );

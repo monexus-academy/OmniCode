@@ -16,10 +16,13 @@ export type OnboardingFieldType =
   | "language-rows"
   | "profile-photo"
   | "education-level"
+  | "work-history"
   | "legal-last-names";
 
 export type OnboardingField = {
   key: string;
+  /** Shown when the section changes so users know which part of the profile they are in */
+  sectionTitle?: string;
   label: string;
   prompt: string;
   helper?: string;
@@ -60,6 +63,46 @@ export const INSTITUTION_TYPE_OPTIONS = [
   { value: "other", label: "Other" },
 ] as const;
 
+export const EMPLOYMENT_TYPE_OPTIONS = [
+  { value: "full-time", label: "Full-time" },
+  { value: "part-time", label: "Part-time" },
+  { value: "contract", label: "Contract" },
+  { value: "freelance", label: "Freelance" },
+  { value: "internship", label: "Internship" },
+  { value: "temporary", label: "Temporary" },
+  { value: "volunteer", label: "Volunteer" },
+  { value: "apprenticeship", label: "Apprenticeship" },
+] as const;
+
+export const WORK_ARRANGEMENT_OPTIONS = [
+  { value: "on-site", label: "On-site" },
+  { value: "remote", label: "Remote" },
+  { value: "hybrid", label: "Hybrid" },
+] as const;
+
+export const INDUSTRY_OPTIONS = [
+  { value: "technology", label: "Technology" },
+  { value: "finance", label: "Finance" },
+  { value: "education", label: "Education" },
+  { value: "healthcare", label: "Healthcare" },
+  { value: "retail", label: "Retail" },
+  { value: "manufacturing", label: "Manufacturing" },
+  { value: "government", label: "Government" },
+  { value: "other", label: "Other" },
+] as const;
+
+export const ROLE_LEVEL_OPTIONS = [
+  { value: "entry-level", label: "Entry-level" },
+  { value: "associate", label: "Associate" },
+  { value: "mid-level", label: "Mid-level" },
+  { value: "senior", label: "Senior" },
+  { value: "lead", label: "Lead" },
+  { value: "manager", label: "Manager" },
+  { value: "director", label: "Director" },
+  { value: "executive", label: "Executive" },
+  { value: "founder", label: "Founder" },
+] as const;
+
 /** Single-select purpose values surfaced to tailor OMNI insights. */
 export const OMNI_PURPOSE_OPTIONS = [
   {
@@ -95,6 +138,7 @@ function needsUsMexicoState(answers: AnswersMap): boolean {
 export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   {
     key: "legalFirstName",
+    sectionTitle: "Personal details",
     label: "Legal first name",
     prompt: "What's your legal first name?",
     helper: "We collect legal first, middle, and last name for identification.",
@@ -105,6 +149,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "legalMiddleName",
+    sectionTitle: "Personal details",
     label: "Legal middle name(s)",
     prompt: "Legal middle name(s), if any?",
     helper: "Leave blank if you don't use a middle name.",
@@ -115,6 +160,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "legalLastName",
+    sectionTitle: "Personal details",
     label: "Legal last name(s)",
     prompt: "What are your legal last name(s)?",
     helper:
@@ -126,6 +172,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "preferredDisplayName",
+    sectionTitle: "Personal details",
     label: "Preferred / display name",
     prompt: "What should we call you day to day?",
     helper: "This is how your name will appear in your report.",
@@ -136,6 +183,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "dateOfBirth",
+    sectionTitle: "Personal details",
     label: "Date of birth",
     prompt: "What's your date of birth?",
     helper: "Pick month, day, and year — used for age-normed scoring.",
@@ -145,6 +193,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "gender",
+    sectionTitle: "Personal details",
     label: "Gender",
     prompt: "How would you describe your gender?",
     helper: "Optional — choose what feels right, or skip.",
@@ -162,6 +211,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "countryOfResidence",
+    sectionTitle: "Personal details",
     label: "Country of residence",
     prompt: "Which country do you currently live in?",
     placeholder: "Choose a country",
@@ -171,6 +221,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "stateOfResidence",
+    sectionTitle: "Personal details",
     label: "State / province",
     prompt: "Which state or province do you live in?",
     helper: "Shown for Mexico and the United States.",
@@ -183,6 +234,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "cityOfResidence",
+    sectionTitle: "Personal details",
     label: "City of residence",
     prompt: "Which city do you live in?",
     helper:
@@ -194,6 +246,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "primarySpokenLanguage",
+    sectionTitle: "Personal details",
     label: "Primary spoken language",
     prompt: "What's your primary spoken language?",
     placeholder: "e.g. Spanish",
@@ -203,6 +256,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "education_kindergarten",
+    sectionTitle: "Education",
     label: "Kindergarten",
     prompt: "Kindergarten — where did you go, and what type of school was it?",
     helper:
@@ -213,6 +267,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "education_elementary",
+    sectionTitle: "Education",
     label: "Elementary school",
     prompt: "Elementary school — school name and type?",
     helper:
@@ -223,6 +278,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "education_middleSchool",
+    sectionTitle: "Education",
     label: "Middle / junior high",
     prompt: "Middle or junior high — school name and type?",
     helper:
@@ -233,6 +289,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "education_highSchool",
+    sectionTitle: "Education",
     label: "High school",
     prompt: "High school — school name and type?",
     helper:
@@ -243,6 +300,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "education_college",
+    sectionTitle: "Education",
     label: "College / university",
     prompt: "College or university — tell us about each institution.",
     helper:
@@ -253,7 +311,19 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
     educationMode: "college",
   },
   {
+    key: "workHistory",
+    sectionTitle: "Work history",
+    label: "Work experience",
+    prompt: "Tell us about your work experience.",
+    helper:
+      "Add each role separately. You can skip this step if you have no paid or volunteer work history yet.",
+    placeholder: "",
+    type: "work-history",
+    required: true,
+  },
+  {
     key: "additionalLanguages",
+    sectionTitle: "Profile & contact",
     label: "Additional spoken languages",
     prompt: "Any other languages you speak?",
     helper:
@@ -264,6 +334,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "phoneNumber",
+    sectionTitle: "Profile & contact",
     label: "Phone number",
     prompt: "What's your phone number?",
     helper: "Optional — we rarely reach out by phone.",
@@ -275,6 +346,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "placeOfBirthCity",
+    sectionTitle: "Profile & contact",
     label: "Place of birth — city",
     prompt: "What city were you born in?",
     helper: "Optional demographic context.",
@@ -284,6 +356,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "placeOfBirthCountry",
+    sectionTitle: "Profile & contact",
     label: "Place of birth — country",
     prompt: "What country were you born in?",
     placeholder: "e.g. Mexico",
@@ -293,6 +366,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "nationalityCitizenship",
+    sectionTitle: "Profile & contact",
     label: "Nationality / citizenship",
     prompt: "What's your nationality or citizenship?",
     placeholder: "e.g. Mexican",
@@ -301,6 +375,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "secondaryNationality",
+    sectionTitle: "Profile & contact",
     label: "Secondary nationality",
     prompt: "Do you hold another nationality?",
     helper: "Optional — if you're dual national, add the other one here.",
@@ -310,6 +385,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "pronouns",
+    sectionTitle: "Profile & contact",
     label: "Pronouns",
     prompt: "Which pronouns should we use?",
     placeholder: "Optional",
@@ -329,6 +405,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "linkedinUrl",
+    sectionTitle: "Profile & contact",
     label: "LinkedIn URL",
     prompt: "Want to share your LinkedIn profile?",
     placeholder: "https://linkedin.com/in/you",
@@ -339,6 +416,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "personalWebsiteUrl",
+    sectionTitle: "Profile & contact",
     label: "Personal website / portfolio",
     prompt: "Personal site or portfolio URL?",
     placeholder: "https://…",
@@ -349,6 +427,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "profilePhotoUrl",
+    sectionTitle: "Profile & contact",
     label: "Profile photo",
     prompt: "Add a profile photo?",
     helper: "Optional — JPG or PNG, up to ~4 MB. You can skip.",
@@ -358,6 +437,7 @@ export const ONBOARDING_FIELD_SEQUENCE: OnboardingField[] = [
   },
   {
     key: "omniPurpose",
+    sectionTitle: "About OMNI",
     label: "Purpose of taking OMNI",
     prompt: "What's your main reason for taking OMNI?",
     helper: "This affects which insights we surface for you.",

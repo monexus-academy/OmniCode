@@ -4,10 +4,19 @@ import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 
 import { AuthForm } from "@/components/auth-form";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useLocale } from "@/locales/locale-context";
+import { UI_STRINGS } from "@/locales/ui-strings";
 
 export function WelcomeScreen() {
+  const { locale } = useLocale();
+  const w = UI_STRINGS[locale].welcome;
+
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center px-6 py-16">
+      <div className="absolute right-6 top-6">
+        <LanguageSwitcher />
+      </div>
       <div className="grid w-full max-w-6xl items-center gap-14 lg:grid-cols-2 lg:gap-20">
         <motion.div
           initial={{ opacity: 0, y: 24 }}
@@ -23,7 +32,7 @@ export function WelcomeScreen() {
           >
             <Sparkles className="h-3.5 w-3.5 text-soft-lavender" />
             <span className="text-xs font-medium uppercase tracking-[0.22em] text-soft-lavender/90">
-              Immersive testing experience
+              {w.badge}
             </span>
           </motion.div>
 
@@ -34,8 +43,8 @@ export function WelcomeScreen() {
               transition={{ delay: 0.2, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
               className="font-display text-balance text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl lg:text-[4.25rem]"
             >
-              <span className="block text-off-white/90">Welcome to the</span>
-              <span className="gradient-text block">Omnitest</span>
+              <span className="block text-off-white/90">{w.titleLine1}</span>
+              <span className="gradient-text block">{w.brand}</span>
             </motion.h1>
             <motion.p
               initial={{ opacity: 0, y: 12 }}
@@ -43,8 +52,7 @@ export function WelcomeScreen() {
               transition={{ delay: 0.35, duration: 0.7 }}
               className="mx-auto max-w-xl text-balance text-lg text-soft-lavender/80 lg:mx-0"
             >
-              A focused, distraction-free way to be assessed. Sign in or create
-              an account to begin a session crafted around your pace.
+              {w.subtitle}
             </motion.p>
           </div>
 
@@ -54,9 +62,9 @@ export function WelcomeScreen() {
             transition={{ delay: 0.5, duration: 0.6 }}
             className="hidden flex-wrap items-center gap-x-6 gap-y-3 text-xs text-soft-lavender/70 lg:flex"
           >
-            <Bullet>Encrypted session</Bullet>
-            <Bullet>One question at a time</Bullet>
-            <Bullet>Auto-saved progress</Bullet>
+            <Bullet>{w.bulletEncrypted}</Bullet>
+            <Bullet>{w.bulletOneQ}</Bullet>
+            <Bullet>{w.bulletAutosave}</Bullet>
           </motion.div>
         </motion.div>
 

@@ -25,21 +25,34 @@ import {
 } from "lucide-react";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  getVisibleOnboardingFields,
-  INSTITUTION_TYPE_OPTIONS,
-  SPOKEN_LEVEL_OPTIONS,
-  type AnswersMap,
-  type OnboardingField,
-} from "@/lib/onboarding-fields";
+import { Textarea } from "@/components/ui/textarea";
+import type { AnswersMap, OnboardingField } from "@/lib/onboarding-fields";
 import { getCityFieldMode } from "@/lib/city-options";
 import { storage } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { getEditorUi, type EditorUiCopy } from "@/locales/editor-ui";
+import {
+  getLocalizedVisibleFields,
+  getQuestionnaireLexicon,
+  type QuestionnaireLexicon,
+} from "@/locales/localize-fields";
+import { useLocale } from "@/locales/locale-context";
+import { getMonthChoices } from "@/locales/months";
+import type { AppLocale } from "@/locales/types";
+import { UI_STRINGS } from "@/locales/ui-strings";
 
 type Answers = AnswersMap;
+
+type QuestionnaireI18n = {
+  locale: AppLocale;
+  lex: QuestionnaireLexicon;
+  editorUi: EditorUiCopy;
+  monthChoices: { value: string; label: string }[];
+};
 
 type QuestionnaireProps = {
   onComplete: (answers: Answers) => Promise<void> | void;
@@ -111,11 +124,6 @@ type EducationPayload = {
   collegeStatus?: string;
   finishedYear?: string;
 };
-
-const COLLEGE_STATUS_OPTIONS = [
-  { value: "currently-studying", label: "Currently studying" },
-  { value: "finished", label: "Finished / graduated" },
-] as const;
 
 function emptyEducationEntry(mode: "standard" | "college"): EducationEntry {
   const base: EducationEntry = { schoolName: "", institutionType: "" };
@@ -275,6 +283,244 @@ function educationHasPartialProgress(
   });
 }
 
+type WorkHistoryEntry = {
+  companyName: string;
+  jobTitle: string;
+  employmentType: string;
+  workArrangement: string;
+  locationCity: string;
+  locationState: string;
+  locationCountry: string;
+  industry: string;
+  startMonth: string;
+  startYear: string;
+  currentlyWorking: string;
+  endMonth: string;
+  endYear: string;
+  mainResponsibilities: string;
+  teamOrDepartment: string;
+  reportsTo: string;
+  managesPeople: string;
+  manageCount: string;
+  roleLevel: string;
+};
+
+type WorkHistoryPayload = {
+  skipped?: boolean;
+  entries?: WorkHistoryEntry[];
+};
+
+function emptyWorkHistoryEntry(): WorkHistoryEntry {
+  return {
+    companyName: "",
+    jobTitle: "",
+    employmentType: "",
+    workArrangement: "",
+    locationCity: "",
+    locationState: "",
+    locationCountry: "",
+    industry: "",
+    startMonth: "",
+    startYear: "",
+    currentlyWorking: "",
+    endMonth: "",
+    endYear: "",
+    mainResponsibilities: "",
+    teamOrDepartment: "",
+    reportsTo: "",
+    managesPeople: "",
+    manageCount: "",
+    roleLevel: "",
+  };
+}
+
+function parseWorkHistoryPayload(raw: string): WorkHistoryPayload {
+  try {
+    const p = JSON.parse(raw || "{}") as unknown;
+    if (!p || typeof p !== "object") return {};
+    const o = p as Record<string, unknown>;
+    const skipped = o.skipped === true;
+    let entries: WorkHistoryEntry[] | undefined;
+    if (Array.isArray(o.entries)) {
+      entries = o.entries
+        .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+        .map((item) => ({
+          companyName:
+            typeof item.companyName === "string" ? item.companyName : "",
+          jobTitle: typeof item.jobTitle === "string" ? item.jobTitle : "",
+          employmentType:
+            typeof item.employmentType === "string" ? item.employmentType : "",
+          workArrangement:
+            typeof item.workArrangement === "string" ? item.workArrangement : "",
+          locationCity:
+            typeof item.locationCity === "string" ? item.locationCity : "",
+          locationState:
+            typeof item.locationState === "string" ? item.locationState : "",
+          locationCountry:
+            typeof item.locationCountry === "string" ? item.locationCountry : "",
+          industry: typeof item.industry === "string" ? item.industry : "",
+          startMonth: typeof item.startMonth === "string" ? item.startMonth : "",
+          startYear: typeof item.startYear === "string" ? item.startYear : "",
+          currentlyWorking:
+            typeof item.currentlyWorking === "string"
+              ? item.currentlyWorking
+              : "",
+          endMonth: typeof item.endMonth === "string" ? item.endMonth : "",
+          endYear: typeof item.endYear === "string" ? item.endYear : "",
+          mainResponsibilities:
+            typeof item.mainResponsibilities === "string"
+              ? item.mainResponsibilities
+              : "",
+          teamOrDepartment:
+            typeof item.teamOrDepartment === "string"
+              ? item.teamOrDepartment
+              : "",
+          reportsTo: typeof item.reportsTo === "string" ? item.reportsTo : "",
+          managesPeople:
+            typeof item.managesPeople === "string" ? item.managesPeople : "",
+          manageCount:
+            typeof item.manageCount === "string" ? item.manageCount : "",
+          roleLevel: typeof item.roleLevel === "string" ? item.roleLevel : "",
+        }));
+    }
+    return { skipped, entries };
+  } catch {
+    return {};
+  }
+}
+
+function normalizeWorkHistoryPayload(
+  parsed: WorkHistoryPayload,
+): { skipped: true; entries: WorkHistoryEntry[] } | { skipped: false; entries: WorkHistoryEntry[] } {
+  if (parsed.skipped) {
+    return { skipped: true, entries: [] };
+  }
+  let entries = parsed.entries;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    entries = [emptyWorkHistoryEntry()];
+  }
+  return {
+    skipped: false,
+    entries: entries.map((e) => ({ ...emptyWorkHistoryEntry(), ...e })),
+  };
+}
+
+function compareMonthYear(
+  m1: number,
+  y1: number,
+  m2: number,
+  y2: number,
+): number {
+  const a = y1 * 12 + m1;
+  const b = y2 * 12 + m2;
+  return a - b;
+}
+
+function formatDurationLabel(
+  entry: WorkHistoryEntry,
+  locale: AppLocale,
+): string | null {
+  const sm = Number(entry.startMonth);
+  const sy = Number(entry.startYear);
+  if (!sm || sm < 1 || sm > 12 || !sy || sy < 1950) return null;
+
+  let em: number;
+  let ey: number;
+  if (entry.currentlyWorking === "yes") {
+    const n = new Date();
+    em = n.getMonth() + 1;
+    ey = n.getFullYear();
+  } else {
+    em = Number(entry.endMonth);
+    ey = Number(entry.endYear);
+    if (!em || em < 1 || em > 12 || !ey) return null;
+  }
+
+  if (compareMonthYear(sm, sy, em, ey) > 0) return null;
+
+  const totalMonths =
+    (ey - sy) * 12 +
+    (em - sm) +
+    1;
+  const short =
+    locale === "es" ? "Menos de un mes" : "Less than a month";
+  if (totalMonths <= 0) return short;
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  const parts: string[] = [];
+  if (years > 0) {
+    parts.push(
+      locale === "es"
+        ? `${years} año${years === 1 ? "" : "s"}`
+        : `${years} year${years === 1 ? "" : "s"}`,
+    );
+  }
+  if (months > 0) {
+    parts.push(
+      locale === "es"
+        ? `${months} mes${months === 1 ? "" : "es"}`
+        : `${months} month${months === 1 ? "" : "s"}`,
+    );
+  }
+  return parts.length > 0 ? parts.join(locale === "es" ? ", " : ", ") : short;
+}
+
+function workHistoryEntryValid(entry: WorkHistoryEntry): boolean {
+  if (!entry.companyName.trim() || !entry.jobTitle.trim()) return false;
+  if (
+    !entry.employmentType.trim() ||
+    !entry.workArrangement.trim() ||
+    !entry.industry.trim()
+  ) {
+    return false;
+  }
+  if (!entry.locationCity.trim() || !entry.locationCountry.trim())
+    return false;
+
+  const sm = Number(entry.startMonth);
+  const sy = Number(entry.startYear);
+  const nowY = new Date().getFullYear();
+  if (!sm || sm < 1 || sm > 12 || !sy || sy < 1950 || sy > nowY + 1) {
+    return false;
+  }
+
+  const cw = entry.currentlyWorking;
+  if (cw !== "yes" && cw !== "no") return false;
+
+  if (cw === "no") {
+    const em = Number(entry.endMonth);
+    const ey = Number(entry.endYear);
+    if (!em || em < 1 || em > 12 || !ey || ey < 1950 || ey > nowY + 1) {
+      return false;
+    }
+    if (compareMonthYear(em, ey, sm, sy) < 0) return false;
+  }
+
+  return true;
+}
+
+function workHistoryStepValid(raw: string): boolean {
+  const parsed = parseWorkHistoryPayload(raw);
+  if (parsed.skipped) return true;
+  const n = normalizeWorkHistoryPayload(parsed);
+  if (n.skipped) return true;
+  if (n.entries.length === 0) return false;
+  return n.entries.every((e) => workHistoryEntryValid(e));
+}
+
+function workHistoryHasPartialProgress(raw: string): boolean {
+  const parsed = parseWorkHistoryPayload(raw);
+  if (parsed.skipped) return true;
+  const n = normalizeWorkHistoryPayload(parsed);
+  if (n.skipped) return true;
+  return n.entries.some(
+    (e) =>
+      e.companyName.trim().length > 0 ||
+      e.jobTitle.trim().length > 0 ||
+      workHistoryEntryValid(e),
+  );
+}
+
 function isReasonableDateOfBirth(iso: string): boolean {
   if (!iso) return false;
   const d = new Date(`${iso}T12:00:00`);
@@ -351,6 +597,7 @@ function isStepValid(field: OnboardingField, value: string): boolean {
     if (
       (field.type === "birth-date" ||
         field.type === "education-level" ||
+        field.type === "work-history" ||
         field.type === "legal-last-names") &&
       !value.trim()
     ) {
@@ -366,6 +613,8 @@ function isStepValid(field: OnboardingField, value: string): boolean {
       return isReasonableDateOfBirth(value);
     case "education-level":
       return educationStepValid(value, field.educationMode ?? "standard");
+    case "work-history":
+      return workHistoryStepValid(value);
     case "legal-last-names":
       return legalLastNamesStepValid(value, !!field.required);
     case "url":
@@ -382,6 +631,19 @@ function isStepValid(field: OnboardingField, value: string): boolean {
 
 export function Questionnaire({ onComplete }: QuestionnaireProps) {
   const { user } = useAuth();
+  const { locale } = useLocale();
+  const qs = UI_STRINGS[locale].questionnaire;
+
+  const i18n = useMemo(
+    (): QuestionnaireI18n => ({
+      locale,
+      lex: getQuestionnaireLexicon(locale),
+      editorUi: getEditorUi(locale),
+      monthChoices: getMonthChoices(locale),
+    }),
+    [locale],
+  );
+
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState<Answers>({});
   const [direction, setDirection] = useState<1 | -1>(1);
@@ -390,25 +652,28 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
   const [fieldBusy, setFieldBusy] = useState(false);
 
   const visibleFields = useMemo(
-    () => getVisibleOnboardingFields(answers),
-    [answers],
+    () => getLocalizedVisibleFields(answers, locale),
+    [answers, locale],
   );
 
-  useEffect(() => {
-    setStepIndex((idx) => {
-      if (visibleFields.length === 0) return 0;
-      return Math.min(idx, visibleFields.length - 1);
-    });
-  }, [visibleFields]);
-
   const totalSteps = visibleFields.length;
-  const field = visibleFields[stepIndex];
-  const value =
-    field.type === "language-rows"
+  const activeStepIndex =
+    totalSteps === 0 ? 0 : Math.min(Math.max(stepIndex, 0), totalSteps - 1);
+
+  const field = visibleFields[activeStepIndex];
+  const showSectionBanner = Boolean(
+    field?.sectionTitle &&
+      (activeStepIndex === 0 ||
+        visibleFields[activeStepIndex - 1]?.sectionTitle !== field.sectionTitle),
+  );
+  const value = !field
+    ? ""
+    : field.type === "language-rows"
       ? (answers[field.key] ?? "[]")
       : (answers[field.key] ?? "");
 
   const progress = useMemo(() => {
+    if (!field || totalSteps === 0) return 0;
     let chunk = value.trim().length > 0 ? 0.5 : 0;
     if (field.type === "language-rows") {
       const rows = parseLanguageRows(value).filter((r) =>
@@ -426,14 +691,17 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
         ? 0.5
         : 0;
     }
+    if (field.type === "work-history") {
+      chunk = workHistoryHasPartialProgress(value) ? 0.5 : 0;
+    }
     if (field.type === "legal-last-names") {
       chunk = legalLastNamesHasPartialProgress(value) ? 0.5 : 0;
     }
     if (field.type === "birth-date" && isReasonableDateOfBirth(value)) {
       chunk = 0.5;
     }
-    return ((stepIndex + chunk) / Math.max(totalSteps, 1)) * 100;
-  }, [field.key, field.type, stepIndex, totalSteps, value]);
+    return ((activeStepIndex + chunk) / totalSteps) * 100;
+  }, [activeStepIndex, field, totalSteps, value]);
 
   const stepOk = field ? isStepValid(field, value) : false;
 
@@ -455,7 +723,8 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
     });
   }, []);
 
-  const isLast = stepIndex >= totalSteps - 1;
+  const isLast =
+    totalSteps > 0 && activeStepIndex >= totalSteps - 1;
 
   const goNext = useCallback(async () => {
     if (!field || !stepOk || submitting || fieldBusy) return;
@@ -470,8 +739,11 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
       return;
     }
     setDirection(1);
-    setStepIndex((i) => Math.min(i + 1, Math.max(totalSteps - 1, 0)));
+    setStepIndex(
+      Math.min(activeStepIndex + 1, Math.max(totalSteps - 1, 0)),
+    );
   }, [
+    activeStepIndex,
     answers,
     field,
     fieldBusy,
@@ -483,11 +755,21 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
     value,
   ]);
 
+  /** Invoked after child saves skip-state; timeout lets React flush answers before validating goNext(). */
+  const goNextRef = useRef(goNext);
+  goNextRef.current = goNext;
+  const scheduleAdvanceAfterCompositeSkip = useCallback(() => {
+    if (submitting || fieldBusy) return;
+    window.setTimeout(() => {
+      void goNextRef.current?.();
+    }, 0);
+  }, [fieldBusy, submitting]);
+
   const goBack = useCallback(() => {
-    if (stepIndex === 0 || submitting) return;
+    if (activeStepIndex === 0 || submitting) return;
     setDirection(-1);
-    setStepIndex((i) => Math.max(i - 1, 0));
-  }, [stepIndex, submitting]);
+    setStepIndex(Math.max(activeStepIndex - 1, 0));
+  }, [activeStepIndex, submitting]);
 
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
@@ -498,6 +780,7 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
         if (target?.closest("[data-language-rows]")) return;
         if (target?.closest("[data-birth-date]")) return;
         if (target?.closest("[data-education-level]")) return;
+        if (target?.closest("[data-work-history]")) return;
         if (target?.closest("[data-legal-last-names]")) return;
         const inSelect = target?.tagName === "SELECT";
         if (inSelect && field?.type === "select") {
@@ -531,21 +814,24 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
   return (
     <div className="relative flex min-h-screen flex-col">
       <header className="sticky top-0 z-20 px-6 py-5">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-4">
+        <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-electric-violet/15 ring-1 ring-electric-violet/40">
               <Sparkles className="h-4 w-4 text-soft-lavender" />
             </span>
             <span className="font-display text-sm font-semibold tracking-tight text-off-white/90">
-              Omnitest
+              {qs.brand}
             </span>
           </div>
-          <div className="flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-soft-lavender/70">
-            <span>{String(stepIndex + 1).padStart(2, "0")}</span>
-            <span className="text-soft-lavender/40">/</span>
-            <span className="text-soft-lavender/50">
-              {String(totalSteps).padStart(2, "0")}
-            </span>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <LanguageSwitcher className="shrink-0" />
+            <div className="flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-soft-lavender/70">
+              <span>{String(activeStepIndex + 1).padStart(2, "0")}</span>
+              <span className="text-soft-lavender/40">/</span>
+              <span className="text-soft-lavender/50">
+                {String(totalSteps).padStart(2, "0")}
+              </span>
+            </div>
           </div>
         </div>
         <div className="mx-auto mt-4 h-[2px] w-full max-w-4xl overflow-hidden rounded-full bg-off-white/5">
@@ -575,14 +861,23 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
               transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
               className="space-y-8"
             >
+              {showSectionBanner && field.sectionTitle ? (
+                <div className="rounded-xl border border-electric-violet/25 bg-electric-violet/10 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.26em] text-electric-violet/95">
+                    {field.sectionTitle}
+                  </p>
+                </div>
+              ) : null}
               <div className="space-y-3">
                 <p className="text-xs font-medium uppercase tracking-[0.3em] text-soft-lavender/60">
-                  Question {stepIndex + 1}
+                  {qs.questionOrdinal} {activeStepIndex + 1}
                   {field.type === "education-level"
-                    ? " · skip if unsure"
-                    : field.required
-                      ? ""
-                      : " · optional"}
+                    ? qs.skipEducationHint
+                    : field.type === "work-history"
+                      ? qs.skipWorkHint
+                      : field.required
+                        ? qs.requiredHint
+                        : qs.optionalHint}
                 </p>
                 <h2 className="font-display text-balance text-4xl font-semibold leading-[1.1] tracking-tight text-off-white sm:text-5xl">
                   {field.prompt}
@@ -599,9 +894,11 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
                 answers={answers}
                 value={value}
                 userId={user?.uid ?? null}
+                i18n={i18n}
                 onChange={(v) => setValue(field.key, v)}
                 onBusy={setFieldBusy}
                 onEnter={() => void goNext()}
+                afterCompositeSkipped={scheduleAdvanceAfterCompositeSkip}
               />
             </motion.section>
           </AnimatePresence>
@@ -615,19 +912,19 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
             variant="ghost"
             size="md"
             onClick={goBack}
-            disabled={stepIndex === 0 || submitting}
+            disabled={activeStepIndex === 0 || submitting}
             className="text-soft-lavender/80 hover:text-off-white disabled:opacity-30"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back
+            {qs.back}
           </Button>
 
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-soft-lavender/50">
-            <span>Press</span>
+            <span>{qs.pressEnter}</span>
             <Kbd>
               <CornerDownLeft className="h-3 w-3" /> Enter
             </Kbd>
-            <span>to continue</span>
+            <span>{qs.pressEnterContinue}</span>
           </div>
 
           <Button
@@ -642,11 +939,11 @@ export function Questionnaire({ onComplete }: QuestionnaireProps) {
             ) : isLast ? (
               <>
                 <Check className="h-4 w-4" />
-                Submit
+                {qs.submit}
               </>
             ) : (
               <>
-                Next
+                {qs.next}
                 <ArrowRight className="h-4 w-4" />
               </>
             )}
@@ -662,17 +959,23 @@ type FieldRendererProps = {
   answers: AnswersMap;
   value: string;
   userId: string | null;
+  i18n: QuestionnaireI18n;
   onChange: (value: string) => void;
   onBusy: (busy: boolean) => void;
   onEnter: () => void;
+  afterCompositeSkipped?: () => void;
 };
 
 function BirthDatePicker({
   value,
   onChange,
+  monthChoices,
+  labels,
 }: {
   value: string;
   onChange: (iso: string) => void;
+  monthChoices: { value: string; label: string }[];
+  labels: EditorUiCopy["birthDate"];
 }) {
   const now = useMemo(() => new Date(), []);
   const maxYear = now.getFullYear() - 4;
@@ -683,25 +986,6 @@ function BirthDatePicker({
     for (let y = maxYear; y >= minYear; y--) ys.push(y);
     return ys;
   }, [maxYear, minYear]);
-
-  const months = useMemo(
-    () =>
-      [
-        [1, "January"],
-        [2, "February"],
-        [3, "March"],
-        [4, "April"],
-        [5, "May"],
-        [6, "June"],
-        [7, "July"],
-        [8, "August"],
-        [9, "September"],
-        [10, "October"],
-        [11, "November"],
-        [12, "December"],
-      ] as const,
-    [],
-  );
 
   const py =
     value && /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -744,7 +1028,7 @@ function BirthDatePicker({
     <div className="grid gap-4 sm:grid-cols-3" data-birth-date="">
       <div>
         <label className="mb-2 block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-          Month
+          {labels.month}
         </label>
         <div className="relative">
           <select
@@ -758,11 +1042,15 @@ function BirthDatePicker({
             }}
           >
             <option value="" disabled className="bg-midnight-navy">
-              Month
+              {labels.month}
             </option>
-            {months.map(([num, label]) => (
-              <option key={num} value={String(num)} className="bg-midnight-navy">
-                {label}
+            {monthChoices.map((choice) => (
+              <option
+                key={choice.value}
+                value={choice.value}
+                className="bg-midnight-navy"
+              >
+                {choice.label}
               </option>
             ))}
           </select>
@@ -772,7 +1060,7 @@ function BirthDatePicker({
 
       <div>
         <label className="mb-2 block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-          Day
+          {labels.day}
         </label>
         <div className="relative">
           <select
@@ -788,7 +1076,7 @@ function BirthDatePicker({
             }}
           >
             <option value="" disabled className="bg-midnight-navy">
-              Day
+              {labels.day}
             </option>
             {days.map((d) => (
               <option key={d} value={String(d)} className="bg-midnight-navy">
@@ -802,7 +1090,7 @@ function BirthDatePicker({
 
       <div>
         <label className="mb-2 block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-          Year
+          {labels.year}
         </label>
         <div className="relative">
           <select
@@ -816,7 +1104,7 @@ function BirthDatePicker({
             }}
           >
             <option value="" disabled className="bg-midnight-navy">
-              Year
+              {labels.year}
             </option>
             {years.map((y) => (
               <option key={y} value={String(y)} className="bg-midnight-navy">
@@ -835,10 +1123,16 @@ function EducationLevelEditor({
   value,
   onChange,
   mode,
+  afterSkipMarked,
+  lex,
+  ui,
 }: {
   value: string;
   onChange: (json: string) => void;
   mode: "standard" | "college";
+  afterSkipMarked?: () => void;
+  lex: QuestionnaireLexicon;
+  ui: EditorUiCopy["education"];
 }) {
   const normalized = useMemo(
     () => normalizeEducationPayload(parseEducationPayload(value), mode),
@@ -901,9 +1195,14 @@ function EducationLevelEditor({
           type="button"
           variant={skipped ? "primary" : "outline"}
           size="md"
-          onClick={() => persist({ skipped: true, entries: [] })}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            persist({ skipped: true, entries: [] });
+            afterSkipMarked?.();
+          }}
         >
-          Skip this level
+          {ui.skipLevel}
         </Button>
         {skipped ? (
           <Button
@@ -918,7 +1217,7 @@ function EducationLevelEditor({
               })
             }
           >
-            I want to answer
+            {ui.wantToAnswer}
           </Button>
         ) : null}
       </div>
@@ -936,8 +1235,8 @@ function EducationLevelEditor({
           >
             <div className="flex items-start justify-between gap-3">
               <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/65">
-                School {index + 1}
-                {mode === "college" ? " · mark finished vs still enrolled per row" : ""}
+                {ui.schoolN} {index + 1}
+                {mode === "college" ? ui.collegeRowHint : ""}
               </span>
               {entries.length > 1 ? (
                 <Button
@@ -955,7 +1254,7 @@ function EducationLevelEditor({
 
             <div className="space-y-2">
               <label className="text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-                School / institution name
+                {ui.schoolName}
               </label>
               <Input
                 value={entry.schoolName}
@@ -972,7 +1271,7 @@ function EducationLevelEditor({
 
             <div className="relative space-y-2">
               <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-                Type of institution
+                {ui.institutionType}
               </label>
               <div className="relative">
                 <select
@@ -984,9 +1283,9 @@ function EducationLevelEditor({
                   className={SELECT_FIELD_CLASSES}
                 >
                   <option value="" disabled className="bg-midnight-navy">
-                    Select type
+                    {ui.selectType}
                   </option>
-                  {INSTITUTION_TYPE_OPTIONS.map((opt) => (
+                  {lex.institutionOpts.map((opt) => (
                     <option
                       key={opt.value}
                       value={opt.value}
@@ -1004,7 +1303,7 @@ function EducationLevelEditor({
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="relative space-y-2">
                   <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-                    Status at this institution
+                    {ui.collegeStatus}
                   </label>
                   <div className="relative">
                     <select
@@ -1022,9 +1321,9 @@ function EducationLevelEditor({
                       className={SELECT_FIELD_CLASSES}
                     >
                       <option value="" disabled className="bg-midnight-navy">
-                        Select status
+                        {ui.selectStatus}
                       </option>
-                      {COLLEGE_STATUS_OPTIONS.map((opt) => (
+                      {lex.collegeStatusOpts.map((opt) => (
                         <option
                           key={opt.value}
                           value={opt.value}
@@ -1041,7 +1340,7 @@ function EducationLevelEditor({
                 {(entry.collegeStatus ?? "") === "finished" ? (
                   <div className="relative space-y-2">
                     <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-                      Finished / graduated in
+                      {ui.finishedYear}
                     </label>
                     <div className="relative">
                       <select
@@ -1055,7 +1354,7 @@ function EducationLevelEditor({
                         className={SELECT_FIELD_CLASSES}
                       >
                         <option value="" disabled className="bg-midnight-navy">
-                          Year
+                          {ui.year}
                         </option>
                         {yearOptions.map((y) => (
                           <option
@@ -1079,7 +1378,628 @@ function EducationLevelEditor({
         {!skipped ? (
           <Button type="button" variant="outline" size="md" onClick={addEntry}>
             <Plus className="h-4 w-4" />
-            Add another school at this level
+            {ui.addSchool}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function WorkHistoryEditor({
+  value,
+  onChange,
+  afterSkipMarked,
+  lex,
+  ui,
+  monthChoices,
+  monthPlaceholder,
+  locale,
+}: {
+  value: string;
+  onChange: (json: string) => void;
+  afterSkipMarked?: () => void;
+  lex: QuestionnaireLexicon;
+  ui: EditorUiCopy["work"];
+  monthChoices: { value: string; label: string }[];
+  monthPlaceholder: string;
+  locale: AppLocale;
+}) {
+  const yesNoChoices = useMemo(
+    () => [
+      { value: "yes", label: lex.yesLabel },
+      { value: "no", label: lex.noLabel },
+    ],
+    [lex.noLabel, lex.yesLabel],
+  );
+
+  const normalized = useMemo(
+    () => normalizeWorkHistoryPayload(parseWorkHistoryPayload(value)),
+    [value],
+  );
+
+  const skipped = normalized.skipped === true;
+  const entries = normalized.entries ?? [];
+
+  const persist = useCallback(
+    (payload: { skipped: boolean; entries: WorkHistoryEntry[] }) => {
+      if (payload.skipped) {
+        onChange(JSON.stringify({ skipped: true, entries: [] }));
+      } else {
+        onChange(JSON.stringify({ skipped: false, entries: payload.entries }));
+      }
+    },
+    [onChange],
+  );
+
+  const updateEntries = useCallback(
+    (nextEntries: WorkHistoryEntry[]) => {
+      persist({ skipped: false, entries: nextEntries });
+    },
+    [persist],
+  );
+
+  const updateEntry = useCallback(
+    (index: number, patch: Partial<WorkHistoryEntry>) => {
+      updateEntries(
+        entries.map((e, i) => (i === index ? { ...e, ...patch } : e)),
+      );
+    },
+    [entries, updateEntries],
+  );
+
+  const addEntry = useCallback(() => {
+    updateEntries([...entries, emptyWorkHistoryEntry()]);
+  }, [entries, updateEntries]);
+
+  const removeEntry = useCallback(
+    (index: number) => {
+      if (entries.length <= 1) return;
+      updateEntries(entries.filter((_, i) => i !== index));
+    },
+    [entries, updateEntries],
+  );
+
+  const yearOptions = useMemo(() => {
+    const cy = new Date().getFullYear();
+    const ys: number[] = [];
+    for (let y = cy + 1; y >= 1950; y--) ys.push(y);
+    return ys;
+  }, []);
+
+  return (
+    <div className="space-y-8" data-work-history="">
+      <div className="flex flex-wrap gap-3">
+        <Button
+          type="button"
+          variant={skipped ? "primary" : "outline"}
+          size="md"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            persist({ skipped: true, entries: [] });
+            afterSkipMarked?.();
+          }}
+        >
+          {ui.skipSection}
+        </Button>
+        {skipped ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="md"
+            className="text-soft-lavender"
+            onClick={() =>
+              persist({
+                skipped: false,
+                entries: [emptyWorkHistoryEntry()],
+              })
+            }
+          >
+            {ui.wantRoles}
+          </Button>
+        ) : null}
+      </div>
+
+      <div
+        className={cn(
+          "space-y-8",
+          skipped && "pointer-events-none opacity-40",
+        )}
+      >
+        {entries.map((entry, index) => {
+          const durationLabel = formatDurationLabel(entry, locale);
+          return (
+            <div
+              key={index}
+              className="space-y-8 rounded-2xl border border-soft-lavender/15 bg-off-white/[0.03] p-5 sm:p-6"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/65">
+                  {ui.roleN} {index + 1}
+                </span>
+                {entries.length > 1 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 text-soft-lavender hover:text-red-300"
+                    onClick={() => removeEntry(index)}
+                    aria-label={`Remove role ${index + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-[10px] font-semibold uppercase tracking-[0.24em] text-electric-violet/80">
+                  {ui.basicEmployment}
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.company}
+                    </label>
+                    <Input
+                      value={entry.companyName}
+                      disabled={skipped}
+                      placeholder="e.g. Acme Corp"
+                      className="h-14 text-lg"
+                      onChange={(e) =>
+                        updateEntry(index, { companyName: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.jobTitle}
+                    </label>
+                    <Input
+                      value={entry.jobTitle}
+                      disabled={skipped}
+                      placeholder="e.g. Software engineer"
+                      className="h-14 text-lg"
+                      onChange={(e) =>
+                        updateEntry(index, { jobTitle: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="relative space-y-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.employmentType}
+                    </label>
+                    <select
+                      disabled={skipped}
+                      value={entry.employmentType}
+                      onChange={(e) =>
+                        updateEntry(index, { employmentType: e.target.value })
+                      }
+                      className={SELECT_FIELD_CLASSES}
+                    >
+                      <option value="" disabled className="bg-midnight-navy">
+                        {ui.selectType}
+                      </option>
+                      {lex.employmentOpts.map((opt) => (
+                        <option
+                          key={opt.value}
+                          value={opt.value}
+                          className="bg-midnight-navy"
+                        >
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                  </div>
+                  <div className="relative space-y-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.workArrangement}
+                    </label>
+                    <select
+                      disabled={skipped}
+                      value={entry.workArrangement}
+                      onChange={(e) =>
+                        updateEntry(index, { workArrangement: e.target.value })
+                      }
+                      className={SELECT_FIELD_CLASSES}
+                    >
+                      <option value="" disabled className="bg-midnight-navy">
+                        {ui.selectArrangement}
+                      </option>
+                      {lex.workArrangementOpts.map((opt) => (
+                        <option
+                          key={opt.value}
+                          value={opt.value}
+                          className="bg-midnight-navy"
+                        >
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.city}
+                    </label>
+                    <Input
+                      value={entry.locationCity}
+                      disabled={skipped}
+                      placeholder={ui.city}
+                      className="h-14 text-lg"
+                      onChange={(e) =>
+                        updateEntry(index, { locationCity: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.stateProvince}
+                    </label>
+                    <Input
+                      value={entry.locationState}
+                      disabled={skipped}
+                      placeholder={ui.stateOptionalPlaceholder}
+                      className="h-14 text-lg"
+                      onChange={(e) =>
+                        updateEntry(index, { locationState: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.country}
+                    </label>
+                    <Input
+                      value={entry.locationCountry}
+                      disabled={skipped}
+                      placeholder="e.g. Mexico"
+                      className="h-14 text-lg"
+                      autoComplete="country-name"
+                      onChange={(e) =>
+                        updateEntry(index, { locationCountry: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="relative space-y-2 sm:col-span-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.industry}
+                    </label>
+                    <select
+                      disabled={skipped}
+                      value={entry.industry}
+                      onChange={(e) =>
+                        updateEntry(index, { industry: e.target.value })
+                      }
+                      className={SELECT_FIELD_CLASSES}
+                    >
+                      <option value="" disabled className="bg-midnight-navy">
+                        {ui.selectIndustry}
+                      </option>
+                      {lex.industryOpts.map((opt) => (
+                        <option
+                          key={opt.value}
+                          value={opt.value}
+                          className="bg-midnight-navy"
+                        >
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3 border-t border-soft-lavender/10 pt-6">
+                <h3 className="text-[10px] font-semibold uppercase tracking-[0.24em] text-electric-violet/80">
+                  {ui.datesTitle}
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="relative space-y-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.startMonth}
+                    </label>
+                    <select
+                      disabled={skipped}
+                      value={entry.startMonth}
+                      onChange={(e) =>
+                        updateEntry(index, { startMonth: e.target.value })
+                      }
+                      className={SELECT_FIELD_CLASSES}
+                    >
+                      <option value="" disabled className="bg-midnight-navy">
+                        {monthPlaceholder}
+                      </option>
+                      {monthChoices.map((opt) => (
+                        <option
+                          key={opt.value}
+                          value={opt.value}
+                          className="bg-midnight-navy"
+                        >
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                  </div>
+                  <div className="relative space-y-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.startYear}
+                    </label>
+                    <select
+                      disabled={skipped}
+                      value={entry.startYear}
+                      onChange={(e) =>
+                        updateEntry(index, { startYear: e.target.value })
+                      }
+                      className={SELECT_FIELD_CLASSES}
+                    >
+                      <option value="" disabled className="bg-midnight-navy">
+                        {ui.yearShort}
+                      </option>
+                      {yearOptions.map((y) => (
+                        <option
+                          key={y}
+                          value={String(y)}
+                          className="bg-midnight-navy"
+                        >
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                  </div>
+                </div>
+
+                <div className="relative max-w-md space-y-2">
+                  <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                    {ui.currentlyHere}
+                  </label>
+                  <select
+                    disabled={skipped}
+                    value={entry.currentlyWorking}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateEntry(index, {
+                        currentlyWorking: v,
+                        ...(v === "yes"
+                          ? { endMonth: "", endYear: "" }
+                          : {}),
+                      });
+                    }}
+                    className={SELECT_FIELD_CLASSES}
+                  >
+                    <option value="" disabled className="bg-midnight-navy">
+                      {ui.selectOption}
+                    </option>
+                    {yesNoChoices.map((opt) => (
+                      <option
+                        key={opt.value}
+                        value={opt.value}
+                        className="bg-midnight-navy"
+                      >
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                </div>
+
+                {entry.currentlyWorking === "no" ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="relative space-y-2">
+                      <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                        {ui.endMonth}
+                      </label>
+                      <select
+                        disabled={skipped}
+                        value={entry.endMonth}
+                        onChange={(e) =>
+                          updateEntry(index, { endMonth: e.target.value })
+                        }
+                        className={SELECT_FIELD_CLASSES}
+                      >
+                        <option value="" disabled className="bg-midnight-navy">
+                          {monthPlaceholder}
+                        </option>
+                        {monthChoices.map((opt) => (
+                          <option
+                            key={opt.value}
+                            value={opt.value}
+                            className="bg-midnight-navy"
+                          >
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                    </div>
+                    <div className="relative space-y-2">
+                      <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                        {ui.endYear}
+                      </label>
+                      <select
+                        disabled={skipped}
+                        value={entry.endYear}
+                        onChange={(e) =>
+                          updateEntry(index, { endYear: e.target.value })
+                        }
+                        className={SELECT_FIELD_CLASSES}
+                      >
+                        <option value="" disabled className="bg-midnight-navy">
+                          {ui.yearShort}
+                        </option>
+                        {yearOptions.map((y) => (
+                          <option
+                            key={y}
+                            value={String(y)}
+                            className="bg-midnight-navy"
+                          >
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                    </div>
+                  </div>
+                ) : null}
+
+                {durationLabel ? (
+                  <p className="text-sm text-soft-lavender/75">
+                    <span className="font-medium text-off-white/90">
+                      {ui.totalDuration}
+                    </span>{" "}
+                    {durationLabel}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="space-y-4 border-t border-soft-lavender/10 pt-6">
+                <h3 className="text-[10px] font-semibold uppercase tracking-[0.24em] text-electric-violet/80">
+                  {ui.roleDescTitle}
+                </h3>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                    {ui.responsibilities}
+                  </label>
+                  <p className="text-xs text-soft-lavender/55">
+                    {ui.responsibilitiesHint}
+                  </p>
+                  <Textarea
+                    disabled={skipped}
+                    value={entry.mainResponsibilities}
+                    onChange={(e) =>
+                      updateEntry(index, {
+                        mainResponsibilities: e.target.value,
+                      })
+                    }
+                    placeholder={ui.responsibilitiesPh}
+                    rows={4}
+                    className="text-base"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                    {ui.teamDept}
+                  </label>
+                  <Input
+                    value={entry.teamOrDepartment}
+                    disabled={skipped}
+                    placeholder="e.g. Product design"
+                    className="h-14 text-lg"
+                    onChange={(e) =>
+                      updateEntry(index, { teamOrDepartment: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                    {ui.reportsTo}
+                  </label>
+                  <Input
+                    value={entry.reportsTo}
+                    disabled={skipped}
+                    placeholder="e.g. Director of Engineering"
+                    className="h-14 text-lg"
+                    onChange={(e) =>
+                      updateEntry(index, { reportsTo: e.target.value })
+                    }
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="relative space-y-2">
+                    <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                      {ui.managePeople}
+                    </label>
+                    <select
+                      disabled={skipped}
+                      value={entry.managesPeople}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        updateEntry(index, {
+                          managesPeople: v,
+                          manageCount:
+                            v === "yes" ? entry.manageCount : "",
+                        });
+                      }}
+                      className={SELECT_FIELD_CLASSES}
+                    >
+                      <option value="" className="bg-midnight-navy">
+                        {ui.preferNotAnswer}
+                      </option>
+                      {yesNoChoices.map((opt) => (
+                        <option
+                          key={opt.value}
+                          value={opt.value}
+                          className="bg-midnight-navy"
+                        >
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                  </div>
+                  {entry.managesPeople === "yes" ? (
+                    <div className="space-y-2">
+                      <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                        {ui.howManyManaged}
+                      </label>
+                      <Input
+                        value={entry.manageCount}
+                        disabled={skipped}
+                        placeholder="e.g. 4"
+                        inputMode="numeric"
+                        className="h-14 text-lg"
+                        onChange={(e) =>
+                          updateEntry(index, { manageCount: e.target.value })
+                        }
+                      />
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="relative space-y-2">
+                  <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
+                    {ui.roleLevel}
+                  </label>
+                  <select
+                    disabled={skipped}
+                    value={entry.roleLevel}
+                    onChange={(e) =>
+                      updateEntry(index, { roleLevel: e.target.value })
+                    }
+                    className={SELECT_FIELD_CLASSES}
+                  >
+                    <option value="" className="bg-midnight-navy">
+                      {ui.preferNotAnswer}
+                    </option>
+                    {lex.roleLevelOpts.map((opt) => (
+                      <option
+                        key={opt.value}
+                        value={opt.value}
+                        className="bg-midnight-navy"
+                      >
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-soft-lavender/60" />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {!skipped ? (
+          <Button type="button" variant="outline" size="md" onClick={addEntry}>
+            <Plus className="h-4 w-4" />
+            {ui.addRole}
           </Button>
         ) : null}
       </div>
@@ -1090,9 +2010,11 @@ function EducationLevelEditor({
 function LegalLastNamesEditor({
   value,
   onChange,
+  ui,
 }: {
   value: string;
   onChange: (json: string) => void;
+  ui: EditorUiCopy["legalLastNames"];
 }) {
   const { primary, additional } = useMemo(
     () => normalizeLegalLastNames(value),
@@ -1141,12 +2063,12 @@ function LegalLastNamesEditor({
     <div className="space-y-6" data-legal-last-names="">
       <div className="space-y-2">
         <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-          Primary legal last name
+          {ui.primaryLabel}
         </label>
         <Input
           value={primary}
           onChange={(e) => setPrimary(e.target.value)}
-          placeholder="e.g. Vasquez"
+          placeholder={ui.primaryPlaceholder}
           autoComplete="family-name"
           className="h-14 text-lg"
         />
@@ -1159,7 +2081,7 @@ function LegalLastNamesEditor({
         >
           <div className="min-w-0 flex-1 space-y-2">
             <label className="block text-[10px] font-medium uppercase tracking-[0.22em] text-soft-lavender/75">
-              Additional last name {index + 1}
+              {ui.additionalLabelPrefix} {index + 1}
             </label>
             <Input
               value={s}
@@ -1175,7 +2097,7 @@ function LegalLastNamesEditor({
             size="icon"
             className="shrink-0 self-end text-soft-lavender hover:text-red-300 sm:self-auto"
             onClick={() => removeAdditional(index)}
-            aria-label={`Remove additional last name ${index + 1}`}
+            aria-label={`${ui.removeAria} ${index + 1}`}
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -1184,7 +2106,7 @@ function LegalLastNamesEditor({
 
       <Button type="button" variant="outline" size="md" onClick={addAdditional}>
         <Plus className="h-4 w-4" />
-        Add another last name
+        {ui.addAnother}
       </Button>
     </div>
   );
@@ -1195,10 +2117,13 @@ function FieldRenderer({
   answers,
   value,
   userId,
+  i18n,
   onChange,
   onBusy,
   onEnter,
+  afterCompositeSkipped,
 }: FieldRendererProps) {
+  const { locale, lex, editorUi, monthChoices } = i18n;
   const cityMode = useMemo(() => {
     if (field.type !== "city") return null;
     return getCityFieldMode(answers);
@@ -1212,6 +2137,7 @@ function FieldRenderer({
       field.type === "profile-photo" ||
       field.type === "birth-date" ||
       field.type === "education-level" ||
+      field.type === "work-history" ||
       field.type === "legal-last-names"
     ) {
       return;
@@ -1228,6 +2154,8 @@ function FieldRenderer({
         value={value}
         onChange={onChange}
         dataAttr="language-rows"
+        levelOptions={lex.spokenLevelOpts}
+        lr={editorUi.languageRows}
       />
     );
   }
@@ -1239,12 +2167,20 @@ function FieldRenderer({
         userId={userId}
         onChange={onChange}
         onBusy={onBusy}
+        copy={editorUi.photo}
       />
     );
   }
 
   if (field.type === "birth-date") {
-    return <BirthDatePicker value={value} onChange={onChange} />;
+    return (
+      <BirthDatePicker
+        value={value}
+        onChange={onChange}
+        monthChoices={monthChoices}
+        labels={editorUi.birthDate}
+      />
+    );
   }
 
   if (field.type === "education-level") {
@@ -1253,12 +2189,36 @@ function FieldRenderer({
         value={value}
         onChange={onChange}
         mode={field.educationMode ?? "standard"}
+        afterSkipMarked={afterCompositeSkipped}
+        lex={lex}
+        ui={editorUi.education}
+      />
+    );
+  }
+
+  if (field.type === "work-history") {
+    return (
+      <WorkHistoryEditor
+        value={value}
+        onChange={onChange}
+        afterSkipMarked={afterCompositeSkipped}
+        lex={lex}
+        ui={editorUi.work}
+        monthChoices={monthChoices}
+        monthPlaceholder={editorUi.birthDate.month}
+        locale={locale}
       />
     );
   }
 
   if (field.type === "legal-last-names") {
-    return <LegalLastNamesEditor value={value} onChange={onChange} />;
+    return (
+      <LegalLastNamesEditor
+        value={value}
+        onChange={onChange}
+        ui={editorUi.legalLastNames}
+      />
+    );
   }
 
   if (field.type === "city" && cityMode) {
@@ -1272,7 +2232,7 @@ function FieldRenderer({
             ref={inputRef as RefObject<HTMLInputElement>}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="Type your city"
+            placeholder={editorUi.city.typeYourCity}
             autoComplete={field.autoComplete}
             className="h-14 text-lg"
             onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
@@ -1289,14 +2249,12 @@ function FieldRenderer({
     if (cityMode.options.length === 0) {
       return (
         <div className="space-y-3">
-          <p className="text-sm text-amber-200/85">
-            We couldn't load cities for this state. Please type your city below.
-          </p>
+          <p className="text-sm text-amber-200/85">{editorUi.city.loadFail}</p>
           <Input
             ref={inputRef as RefObject<HTMLInputElement>}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="Your city"
+            placeholder={editorUi.city.yourCityPlaceholder}
             className="h-14 text-lg"
             onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
               if (e.key === "Enter") {
@@ -1410,10 +2368,14 @@ function LanguageRowsEditor({
   value,
   onChange,
   dataAttr,
+  levelOptions,
+  lr,
 }: {
   value: string;
   onChange: (json: string) => void;
   dataAttr: string;
+  levelOptions: { value: string; label: string }[];
+  lr: EditorUiCopy["languageRows"];
 }) {
   const rows = parseLanguageRows(value);
 
@@ -1443,7 +2405,7 @@ function LanguageRowsEditor({
     <div className="space-y-4" data-language-rows={dataAttr}>
       {displayRows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-soft-lavender/20 bg-off-white/[0.02] px-4 py-6 text-center text-sm text-soft-lavender/75">
-          No additional languages yet. Tap add if you speak others.
+          {lr.empty}
         </p>
       ) : (
         <ul className="space-y-4">
@@ -1454,7 +2416,7 @@ function LanguageRowsEditor({
             >
               <div className="flex-1 space-y-2">
                 <label className="text-[10px] font-medium uppercase tracking-[0.2em] text-soft-lavender/70">
-                  Language
+                  {lr.language}
                 </label>
                 <Input
                   value={row.language}
@@ -1465,7 +2427,7 @@ function LanguageRowsEditor({
               </div>
               <div className="sm:w-52">
                 <label className="mb-2 block text-[10px] font-medium uppercase tracking-[0.2em] text-soft-lavender/70">
-                  Spoken level
+                  {lr.spokenLevel}
                 </label>
                 <div className="relative">
                   <select
@@ -1474,9 +2436,9 @@ function LanguageRowsEditor({
                     className={SELECT_FIELD_CLASSES_SM}
                   >
                     <option value="" className="bg-midnight-navy">
-                      Select level
+                      {lr.selectLevel}
                     </option>
-                    {SPOKEN_LEVEL_OPTIONS.map((opt) => (
+                    {levelOptions.map((opt) => (
                       <option key={opt.value} value={opt.value} className="bg-midnight-navy">
                         {opt.label}
                       </option>
@@ -1491,7 +2453,7 @@ function LanguageRowsEditor({
                 size="icon"
                 className="shrink-0 text-soft-lavender hover:text-red-300"
                 onClick={() => removeRow(index)}
-                aria-label={`Remove language row ${index + 1}`}
+                aria-label={`${lr.removeRow} ${index + 1}`}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -1502,7 +2464,7 @@ function LanguageRowsEditor({
 
       <Button type="button" variant="outline" size="md" onClick={addRow} className="w-full sm:w-auto">
         <Plus className="h-4 w-4" />
-        Add a language
+        {lr.addLanguage}
       </Button>
     </div>
   );
@@ -1513,11 +2475,13 @@ function ProfilePhotoPicker({
   userId,
   onChange,
   onBusy,
+  copy,
 }: {
   value: string;
   userId: string | null;
   onChange: (url: string) => void;
   onBusy: (busy: boolean) => void;
+  copy: EditorUiCopy["photo"];
 }) {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1526,16 +2490,16 @@ function ProfilePhotoPicker({
     setError(null);
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      setError("Please choose an image file (JPG or PNG).");
+      setError(copy.errType);
       return;
     }
     if (file.size > 4 * 1024 * 1024) {
-      setError("That file is too large. Try under 4 MB.");
+      setError(copy.errSize);
       return;
     }
 
     if (!userId) {
-      setError("You need to be signed in to upload a photo.");
+      setError(copy.errAuth);
       return;
     }
 
@@ -1552,7 +2516,7 @@ function ProfilePhotoPicker({
       const url = await getDownloadURL(storageRef);
       onChange(url);
     } catch {
-      setError("Upload failed. Check Storage rules or try again.");
+      setError(copy.errUpload);
       onChange("");
     } finally {
       onBusy(false);
@@ -1580,11 +2544,9 @@ function ProfilePhotoPicker({
           <div className="text-left">
             <p className="flex items-center gap-2 font-medium text-off-white">
               <Upload className="h-4 w-4 text-soft-lavender" />
-              {value ? "Replace photo" : "Upload a photo"}
+              {value ? copy.replace : copy.upload}
             </p>
-            <p className="mt-1 text-sm text-soft-lavender/65">
-              JPG or PNG · optional
-            </p>
+            <p className="mt-1 text-sm text-soft-lavender/65">{copy.sub}</p>
           </div>
         </button>
         <input
@@ -1598,7 +2560,7 @@ function ProfilePhotoPicker({
 
       {value ? (
         <Button type="button" variant="ghost" size="sm" onClick={() => onChange("")}>
-          Remove photo
+          {copy.remove}
         </Button>
       ) : null}
 
@@ -1618,6 +2580,9 @@ function Kbd({ children }: { children: React.ReactNode }) {
 }
 
 function CompletedView({ email }: { email: string | null }) {
+  const { locale } = useLocale();
+  const qs = UI_STRINGS[locale].questionnaire;
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.96 }}
@@ -1638,18 +2603,19 @@ function CompletedView({ email }: { email: string | null }) {
       </motion.div>
 
       <h1 className="font-display text-5xl font-semibold leading-[1.05] tracking-tight text-off-white sm:text-6xl">
-        <span className="gradient-text">All set.</span>
+        <span className="gradient-text">{qs.completedHeading}</span>
       </h1>
       <p className="mt-6 max-w-lg text-balance text-base text-soft-lavender/80 sm:text-lg">
         {email ? (
           <>
-            Thanks for completing your profile,{" "}
-            <span className="text-off-white">{email}</span>.
+            {qs.completedLine1BeforeEmail}
+            <span className="text-off-white">{email}</span>
+            {qs.completedLine1AfterEmail}{" "}
           </>
         ) : (
-          "Thanks for completing your profile."
-        )}{" "}
-        Your responses have been recorded — your Omnitest journey begins now.
+          <>{qs.completedLine1NoEmail}{" "}</>
+        )}
+        {qs.completedLine2}
       </p>
     </motion.div>
   );

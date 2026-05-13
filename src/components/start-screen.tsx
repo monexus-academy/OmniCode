@@ -4,8 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CornerDownLeft, LogOut, PlayCircle } from "lucide-react";
 
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
+import { useLocale } from "@/locales/locale-context";
+import { UI_STRINGS } from "@/locales/ui-strings";
 
 type StartScreenProps = {
   onStart: () => void;
@@ -13,6 +16,8 @@ type StartScreenProps = {
 
 export function StartScreen({ onStart }: StartScreenProps) {
   const { user, signOut } = useAuth();
+  const { locale } = useLocale();
+  const s = UI_STRINGS[locale].start;
   const [pulsed, setPulsed] = useState(false);
 
   const handleStart = useCallback(async () => {
@@ -52,13 +57,14 @@ export function StartScreen({ onStart }: StartScreenProps) {
       transition={{ duration: 0.5 }}
       className="relative flex min-h-screen flex-col items-center justify-center px-6 py-16"
     >
-      <div className="absolute right-6 top-6">
+      <div className="absolute right-6 top-6 flex flex-wrap items-center justify-end gap-3">
+        <LanguageSwitcher />
         <button
           onClick={() => void signOut()}
           className="inline-flex items-center gap-2 rounded-full border border-soft-lavender/15 bg-off-white/[0.04] px-4 py-2 text-xs uppercase tracking-[0.2em] text-soft-lavender/80 backdrop-blur transition-all hover:border-soft-lavender/35 hover:text-off-white"
         >
           <LogOut className="h-3.5 w-3.5" />
-          Sign out
+          {s.signOut}
         </button>
       </div>
 
@@ -69,7 +75,7 @@ export function StartScreen({ onStart }: StartScreenProps) {
           transition={{ delay: 0.1, duration: 0.6 }}
           className="mb-6 inline-flex items-center gap-2 rounded-full border border-soft-lavender/20 bg-off-white/[0.03] px-4 py-1.5 text-xs font-medium uppercase tracking-[0.28em] text-soft-lavender/90"
         >
-          You're authenticated
+          {s.authenticated}
         </motion.span>
 
         <motion.h1
@@ -78,7 +84,7 @@ export function StartScreen({ onStart }: StartScreenProps) {
           transition={{ delay: 0.2, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
           className="font-display text-balance text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl"
         >
-          <span className="block text-off-white/85">Hello,</span>
+          <span className="block text-off-white/85">{s.hello}</span>
           <span className="gradient-text block capitalize">{greeting}.</span>
         </motion.h1>
 
@@ -88,9 +94,9 @@ export function StartScreen({ onStart }: StartScreenProps) {
           transition={{ delay: 0.4, duration: 0.6 }}
           className="mt-6 max-w-xl text-balance text-base text-soft-lavender/80 sm:text-lg"
         >
-          When you're ready, hit <Kbd>Enter</Kbd> or press start. We'll move
-          into focus mode and walk through a short questionnaire — one question
-          at a time.
+          {s.introLead}
+          <Kbd>Enter</Kbd>
+          {s.introTrail}
         </motion.p>
 
         <AnimatePresence>
@@ -113,12 +119,12 @@ export function StartScreen({ onStart }: StartScreenProps) {
                 className="rounded-2xl px-14 text-lg font-semibold tracking-tight"
               >
                 <PlayCircle className="h-6 w-6" />
-                <span>Start</span>
+                <span>{s.startCta}</span>
               </Button>
             </motion.div>
 
             <p className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-soft-lavender/60">
-              <span>Or press</span>
+              <span>{s.orPress}</span>
               <Kbd>
                 <CornerDownLeft className="h-3 w-3" /> Enter
               </Kbd>

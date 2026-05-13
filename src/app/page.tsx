@@ -1,5 +1,3 @@
-import { Experience } from "@/components/experience";
-
 export default function HomePage() {
-  return <Experience />;
+  return <main className="min-h-screen" />;
 }

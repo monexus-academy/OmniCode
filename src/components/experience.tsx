@@ -10,6 +10,11 @@ import { Questionnaire } from "@/components/questionnaire";
 import { StartScreen } from "@/components/start-screen";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { useAuth } from "@/lib/auth-context";
+import {
+  PROFILE_EDUCATION_STEP_KEYS,
+  canonicalAnswersForFirestore,
+} from "@/lib/canonical-firestore-answers";
+import type { AnswersMap } from "@/lib/onboarding-fields";
 import { db } from "@/lib/firebase";
 
 function splitLegalLastNamesForFirestore(raw: string): {
@@ -52,6 +57,10 @@ export function Experience() {
     async (answers: Record<string, string>) => {
       if (!user) return;
 
+      answers = canonicalAnswersForFirestore(
+        answers as AnswersMap,
+      ) as Record<string, string>;
+
       let additionalLanguagesParsed: { language: string; level: string }[] = [];
       try {
         const raw = answers.additionalLanguages ?? "[]";
@@ -72,15 +81,21 @@ export function Experience() {
 
       const { additionalLanguages: _drop, ...rest } = answers;
 
+      let workHistoryParsed: Record<string, unknown> = { skipped: true, entries: [] };
+      const rawWork = answers.workHistory;
+      if (typeof rawWork === "string" && rawWork.trim()) {
+        try {
+          workHistoryParsed = JSON.parse(rawWork) as Record<string, unknown>;
+        } catch {
+          workHistoryParsed = { skipped: true, entries: [] };
+        }
+      }
+
       const educationSnapshot: Record<string, unknown> = {};
-      const EDU_KEYS = [
-        "education_kindergarten",
-        "education_elementary",
-        "education_middleSchool",
-        "education_highSchool",
-        "education_college",
-      ] as const;
-      const eduFirestoreKey: Record<(typeof EDU_KEYS)[number], string> = {
+      const eduFirestoreKey: Record<
+        (typeof PROFILE_EDUCATION_STEP_KEYS)[number],
+        string
+      > = {
         education_kindergarten: "kindergarten",
         education_elementary: "elementary",
         education_middleSchool: "middleSchool",
@@ -88,7 +103,7 @@ export function Experience() {
         education_college: "college",
       };
 
-      for (const key of EDU_KEYS) {
+      for (const key of PROFILE_EDUCATION_STEP_KEYS) {
         const raw = answers[key];
         try {
           educationSnapshot[eduFirestoreKey[key]] = JSON.parse(raw ?? "{}");
@@ -98,9 +113,10 @@ export function Experience() {
       }
 
       const scalars = { ...rest } as Record<string, unknown>;
-      for (const key of EDU_KEYS) {
+      for (const key of PROFILE_EDUCATION_STEP_KEYS) {
         delete scalars[key];
       }
+      delete scalars.workHistory;
 
       const lnSplit = splitLegalLastNamesForFirestore(
         String(scalars.legalLastName ?? ""),
@@ -112,6 +128,7 @@ export function Experience() {
         ...scalars,
         additionalLanguages: additionalLanguagesParsed,
         educationHistory: educationSnapshot,
+        workHistory: workHistoryParsed,
         email: user.email,
         updatedAt: serverTimestamp(),
       };
